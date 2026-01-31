@@ -140,7 +140,7 @@ def update_regions_with_nearest_station(db_path: Path, max_distance_km: float = 
 
     # Get all coastal regions
     cursor.execute("""
-        SELECT code, name, lat, lon, marine_zone_code
+        SELECT code, name, lat, lon, zone_code
         FROM regions r
         LEFT JOIN region_marine_zone rmz ON r.code = rmz.region_code
         WHERE r.is_coastal = 1
