@@ -67,6 +67,7 @@ sqlite>
 | `photo_spot_themes` | 출사지-테마 연결 | - |
 | `marine_zones` | 해양예보구역 | 9개 |
 | `region_marine_zone` | 지역-해양구역 연결 | - |
+| `beaches` | 전국 해수욕장 정보 | 420개 |
 | `user_collections` | 사용자 컬렉션 | - |
 | `user_collection_spots` | 컬렉션에 저장된 스팟 | - |
 
@@ -127,6 +128,20 @@ sqlite>
 | 12C20000 | 동해중부 | East Sea Central |
 | 12C30000 | 동해북부 | East Sea North |
 | 12D10000 | 제주도 | Jeju Island |
+
+#### beaches (해수욕장)
+전국 420개 해수욕장 정보입니다.
+
+| 컬럼명 | 설명 | 예시 |
+|-------|------|------|
+| `beach_num` | 해수욕장 고유번호 (기본키) | 1 |
+| `name` | 해수욕장명 | "경포해수욕장" |
+| `nx` | 기상청 격자 X좌표 | 92 |
+| `ny` | 기상청 격자 Y좌표 | 131 |
+| `lon` | 경도 | 128.8962 |
+| `lat` | 위도 | 37.8055 |
+| `region_code` | 연결된 읍면동 코드 | "4215012500" |
+| `marine_zone_code` | 해양예보구역 코드 | "12C30000" |
 
 ---
 
@@ -428,7 +443,44 @@ WHERE r.sido = '강원특별자치도'
   AND r.is_coastal = 1;
 ```
 
-### 5.5 좌표 기반 검색
+### 5.5 해수욕장 검색
+
+#### 모든 해수욕장 조회
+```sql
+SELECT beach_num, name, lat, lon, region_code, marine_zone_code
+FROM beaches
+ORDER BY name;
+```
+
+#### 해양구역별 해수욕장 조회
+```sql
+-- 동해북부 해수욕장 목록
+SELECT b.name as beach_name, b.lat, b.lon, mz.name as zone_name
+FROM beaches b
+JOIN marine_zones mz ON b.marine_zone_code = mz.zone_code
+WHERE mz.zone_code = '12C30000'
+ORDER BY b.lat DESC;
+```
+
+#### 해수욕장과 연결된 지역 정보 조회
+```sql
+-- 해수욕장과 읍면동 정보 함께 조회
+SELECT b.name as beach_name, r.name as region_name, r.sido, r.sigungu
+FROM beaches b
+JOIN regions r ON b.region_code = r.code
+WHERE b.name LIKE '%경포%';
+```
+
+#### 해양구역별 해수욕장 통계
+```sql
+SELECT mz.name as zone_name, COUNT(*) as beach_count
+FROM beaches b
+JOIN marine_zones mz ON b.marine_zone_code = mz.zone_code
+GROUP BY mz.zone_code
+ORDER BY beach_count DESC;
+```
+
+### 5.6 좌표 기반 검색
 
 #### 특정 좌표 근처 지역 찾기
 ```sql
@@ -443,7 +495,7 @@ ORDER BY distance_sq
 LIMIT 10;
 ```
 
-### 5.6 데이터 내보내기
+### 5.7 데이터 내보내기
 
 #### CSV로 내보내기
 ```sql
@@ -560,6 +612,8 @@ cp data/regions.db "data/regions_$(date +%Y%m%d).db.backup"
 | 지역 상세 | `GET /api/v1/regions/{code}` |
 | 출사지 | `GET /api/v1/photo-spots` |
 | 해양 예보 | `GET /api/v1/marine/zones` |
+| 해수욕장 목록 | `GET /api/v1/beaches` |
+| 해수욕장 날씨 | `GET /api/v1/beaches/{beach_num}/forecast` |
 
 ---
 

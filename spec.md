@@ -107,6 +107,7 @@ collectors/
 ├── openmeteo.py           # Open-Meteo
 ├── airkorea.py            # 에어코리아
 ├── khoa_ocean.py          # 바다누리 해양
+├── beach_info.py          # 전국 해수욕장 날씨 정보
 └── example_usage.py       # 사용 예시
 ```
 
@@ -142,7 +143,20 @@ if abs(kma_value - openmeteo_value) > threshold:
 | 해수온 관측 | 표층 수온 | 바다누리/기상청 |
 | 기상청 해상예보 | 파고, 날씨, 풍랑특보 | 기상청 API Hub |
 
-### 3.4 해양예보구역 (Marine Zones)
+### 3.4 해수욕장 날씨 정보
+
+| API | 제공 데이터 | 출처 |
+|-----|------------|------|
+| 초단기예보 | 기온, 풍속, 습도, 강수형태 | 기상청 BeachInfoservice |
+| 단기예보 | 기온, 강수확률, 하늘상태, 풍속 | 기상청 BeachInfoservice |
+| 파고 | 유의파고, 파향 | 기상청 BeachInfoservice |
+| 조석 | 만조/간조 시각, 조위 | 기상청 BeachInfoservice |
+| 일출일몰 | 일출/일몰 시각 | 기상청 BeachInfoservice |
+| 수온 | 표층 수온 | 기상청 BeachInfoservice |
+
+> **Note**: 전국 420개 해수욕장 데이터 (363개 읍면동 매핑, 344개 해양구역 연결)
+
+### 3.5 해양예보구역 (Marine Zones)
 
 | 구역 코드 | 한글명 | 영문명 |
 |----------|--------|--------|
@@ -268,7 +282,41 @@ CREATE TABLE region_marine_zone (
 );
 ```
 
-#### 4.2.5 user_collections (사용자 컬렉션)
+#### 4.2.5 beaches (해수욕장) - 420개
+
+```sql
+CREATE TABLE beaches (
+    beach_num INTEGER PRIMARY KEY,  -- 해수욕장 고유번호
+    name TEXT NOT NULL,             -- 해수욕장명 (예: "경포해수욕장")
+    nx INTEGER NOT NULL,            -- 기상청 격자 X좌표
+    ny INTEGER NOT NULL,            -- 기상청 격자 Y좌표
+    lon REAL NOT NULL,              -- 경도
+    lat REAL NOT NULL,              -- 위도
+    region_code TEXT,               -- 연결된 읍면동 코드
+    marine_zone_code TEXT,          -- 연결된 해양예보구역 코드
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (region_code) REFERENCES regions(code),
+    FOREIGN KEY (marine_zone_code) REFERENCES marine_zones(zone_code)
+);
+
+CREATE INDEX idx_beaches_region ON beaches(region_code);
+CREATE INDEX idx_beaches_marine_zone ON beaches(marine_zone_code);
+CREATE INDEX idx_beaches_coords ON beaches(lat, lon);
+```
+
+| 해양구역 | 해수욕장 수 |
+|---------|-----------|
+| 동해북부 | 101 |
+| 서해중부 | 54 |
+| 남해서부 | 41 |
+| 동해중부 | 35 |
+| 동해남부 | 33 |
+| 남해동부 | 32 |
+| 서해남부 | 22 |
+| 제주도 | 14 |
+| 서해북부 | 12 |
+
+#### 4.2.6 user_collections (사용자 컬렉션)
 
 ```sql
 CREATE TABLE user_collections (
@@ -468,6 +516,7 @@ api/
     ├── regions.py       # /api/v1/regions
     ├── photo_spots.py   # /api/v1/photo-spots
     ├── marine.py        # /api/v1/marine
+    ├── beaches.py       # /api/v1/beaches (해수욕장 날씨)
     ├── astronomy.py     # /api/v1/astronomy
     ├── feedback.py      # /api/v1/feedback
     ├── user_collections.py  # /api/v1/user
@@ -492,6 +541,13 @@ api/
 | GET | `/api/v1/astronomy` | 천문 정보 (일출/일몰/월령) |
 | POST | `/api/v1/feedback` | 사용자 피드백 제출 |
 | GET | `/api/v1/map/boundaries` | 지도 경계 GeoJSON |
+| GET | `/api/v1/beaches` | 해수욕장 목록 조회 |
+| GET | `/api/v1/beaches/{beach_num}` | 해수욕장 상세 정보 |
+| GET | `/api/v1/beaches/{beach_num}/forecast` | 해수욕장 초단기/단기예보 |
+| GET | `/api/v1/beaches/{beach_num}/wave` | 해수욕장 파고 정보 |
+| GET | `/api/v1/beaches/{beach_num}/tide` | 해수욕장 조석 정보 |
+| GET | `/api/v1/beaches/{beach_num}/sun` | 해수욕장 일출/일몰 |
+| GET | `/api/v1/beaches/{beach_num}/temperature` | 해수욕장 수온 |
 | GET | `/api/v1/user/collections` | 사용자 컬렉션 목록 |
 | POST | `/api/v1/user/collections` | 컬렉션 생성 |
 | GET | `/api/v1/user/collections/{id}` | 컬렉션 상세 |
@@ -545,6 +601,8 @@ weather_lens/
 │   ├── regions.db             # SQLite 메인 DB (3,616 지역)
 │   ├── ocean_mapping.db       # 해양 관측소 매핑
 │   ├── marine_zones.py        # 해양예보구역 정의
+│   ├── beaches.py             # 전국 해수욕장 데이터 (420개)
+│   ├── init_beaches.sql       # 해수욕장 테이블 스키마
 │   ├── cache/                 # JSON 캐시 (날짜별)
 │   └── boundaries/            # GeoJSON 경계 파일
 ├── collectors/
@@ -554,7 +612,8 @@ weather_lens/
 │   ├── kma_marine_forecast.py # 기상청 해상예보
 │   ├── openmeteo.py           # Open-Meteo
 │   ├── airkorea.py            # 에어코리아
-│   └── khoa_ocean.py          # 바다누리 해양
+│   ├── khoa_ocean.py          # 바다누리 해양
+│   └── beach_info.py          # 전국 해수욕장 날씨 (420개)
 ├── processors/
 │   ├── __init__.py
 │   ├── data_merger.py         # 복수 API 평균값 + 편차 플래그
@@ -589,6 +648,7 @@ weather_lens/
 │   ├── init_database.py       # DB 초기화
 │   ├── import_regions.py      # 지역 데이터 임포트
 │   ├── setup_marine_zones.py  # 해양구역 설정
+│   ├── setup_beaches.py       # 해수욕장 데이터 설정
 │   └── collect_weather_report.py  # 날씨 리포트 생성
 ├── docs/
 │   ├── DB_API_GUIDE.md        # DB/API 사용 가이드
@@ -612,6 +672,9 @@ AIRKOREA_API_KEY=
 
 # 바다누리 API
 KHOA_API_KEY=
+
+# 해수욕장 날씨 API (기상청 BeachInfoservice)
+BEACH_API_KEY=
 
 # Kakao Maps (확장 단계)
 KAKAO_REST_API_KEY=
