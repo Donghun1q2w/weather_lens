@@ -7,7 +7,18 @@ This module handles:
 - Loading and managing regional data (읍면동)
 """
 
-from processors.cache_writer import CacheWriter, write_weather_cache
+from processors.cache_writer import (
+    CacheWriter,
+    write_weather_cache,
+    write_beach_weather_cache,
+    write_marine_forecast_cache,
+)
+from processors.batch_cache import (
+    BatchCacheProcessor,
+    CacheResult,
+    batch_cache_regions,
+    batch_cache_beaches,
+)
 from processors.data_merger import (
     WeatherData,
     WeatherValue,
@@ -35,6 +46,13 @@ __all__ = [
     # Cache writer
     "CacheWriter",
     "write_weather_cache",
+    "write_beach_weather_cache",
+    "write_marine_forecast_cache",
+    # Batch cache
+    "BatchCacheProcessor",
+    "CacheResult",
+    "batch_cache_regions",
+    "batch_cache_beaches",
     # Region loader
     "Region",
     "RegionLoader",

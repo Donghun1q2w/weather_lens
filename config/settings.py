@@ -17,6 +17,7 @@ KMA_API_KEY = os.getenv("KMA_API_KEY", "")
 KMA_API_SOURCE = os.getenv("KMA_API_SOURCE", "data.go.kr")  # "data.go.kr" or "apihub.kma.go.kr"
 AIRKOREA_API_KEY = os.getenv("AIRKOREA_API_KEY", "")
 KHOA_API_KEY = os.getenv("KHOA_API_KEY", "")
+BEACH_API_KEY = os.getenv("BEACH_API_KEY", "")
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
@@ -32,6 +33,13 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 SQLITE_DB_PATH = DATA_DIR / "regions.db"
 OCEAN_MAPPING_DB_PATH = DATA_DIR / "ocean_mapping.db"
 
+# Cache settings
+CACHE_DAYS_TO_KEEP = 3  # Days to keep cache files
+CACHE_MAX_SIZE_MB = 100  # Max cache size in MB
+BEACH_CACHE_SUBDIR = "beaches"
+MARINE_CACHE_SUBDIR = "marine"
+REGION_CACHE_SUBDIR = "regions"
+
 # Data collection settings
 KMA_WEIGHT = 0.6  # 기상청 가중치
 OPENMETEO_WEIGHT = 0.4  # Open-Meteo 가중치
@@ -40,6 +48,10 @@ DEVIATION_THRESHOLD = 5.0  # 편차 경고 임계값
 # Forecast settings
 FORECAST_DAYS = 3  # D-day ~ D+2
 UPDATE_INTERVAL_HOURS = 12  # 갱신 주기
+
+# Beach data settings
+BEACH_COUNT = 420  # Total number of beaches
+BEACH_UPDATE_INTERVAL_HOURS = 6  # Beach forecast update interval
 
 # Gemini settings
 GEMINI_MODEL = "gemini-1.5-flash"
