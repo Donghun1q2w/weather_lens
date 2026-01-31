@@ -70,7 +70,7 @@ class KMAMarineForecastCollector(BaseCollector):
     def __init__(
         self,
         api_key: str,
-        api_source: Literal["data.go.kr", "apihub.kma.go.kr"] = "apihub.kma.go.kr"
+        api_source: Literal["data.go.kr", "apihub.kma.go.kr"] = "data.go.kr"
     ):
         """
         Initialize KMA Marine Forecast Collector
@@ -166,7 +166,24 @@ class KMAMarineForecastCollector(BaseCollector):
             "authKey": self.api_key
         }
 
-        response = await self._make_request(self.base_url, params)
+        try:
+            response = await self._make_request(self.base_url, params)
+        except Exception as e:
+            error_str = str(e)
+            if "401" in error_str or "Unauthorized" in error_str:
+                raise CollectorError(
+                    f"API authentication failed (401 Unauthorized). "
+                    f"Please verify your apihub.kma.go.kr API key (authKey parameter). "
+                    f"Current key: {self.api_key[:10]}... Error: {error_str}"
+                ) from e
+            elif "403" in error_str or "Forbidden" in error_str:
+                raise CollectorError(
+                    f"API access forbidden (403). "
+                    f"Please verify your API key is valid and has permission to access apihub.kma.go.kr. "
+                    f"Error: {error_str}"
+                ) from e
+            else:
+                raise CollectorError(f"Failed to fetch data from apihub.kma.go.kr: {error_str}") from e
 
         # API 응답 확인
         header = response.get("response", {}).get("header", {})
@@ -242,15 +259,47 @@ class KMAMarineForecastCollector(BaseCollector):
             "regId": marine_zone_code
         }
 
-        response = await self._make_request(self.base_url, params)
+        try:
+            response = await self._make_request(self.base_url, params)
+        except Exception as e:
+            error_str = str(e)
+            if "401" in error_str or "Unauthorized" in error_str:
+                raise CollectorError(
+                    f"API authentication failed (401 Unauthorized). "
+                    f"Please verify your data.go.kr API key (serviceKey parameter). "
+                    f"Current key: {self.api_key[:10]}... Error: {error_str}"
+                ) from e
+            elif "403" in error_str or "Forbidden" in error_str:
+                raise CollectorError(
+                    f"API access forbidden (403). "
+                    f"Please verify your API key is valid and has permission to access this service. "
+                    f"Error: {error_str}"
+                ) from e
+            else:
+                raise CollectorError(f"Failed to fetch data from data.go.kr: {error_str}") from e
 
         # API 응답 확인
         header = response.get("response", {}).get("header", {})
         result_code = header.get("resultCode")
 
+        if result_code == "03":
+            # NO_DATA - 빈 결과 반환
+            logger.warning(f"No data available for marine zone {marine_zone_code} (data.go.kr)")
+            return {
+                "source": "kma_marine",
+                "api_source": self.api_source,
+                "marine_zone_code": marine_zone_code,
+                "zone_name": self.MARINE_ZONE_CODES[marine_zone_code],
+                "collected_at": datetime.now().isoformat(),
+                "forecast": []
+            }
+
         if result_code != "00":
             error_msg = header.get("resultMsg", "Unknown error")
-            raise CollectorError(f"KMA API error: {error_msg}")
+            raise CollectorError(
+                f"KMA API error from data.go.kr: {error_msg} (code: {result_code}). "
+                f"Zone: {marine_zone_code}"
+            )
 
         items = response.get("response", {}).get("body", {}).get("items", {}).get("item", [])
 
