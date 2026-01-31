@@ -748,6 +748,7 @@ LOG_LEVEL=INFO
 | 문서 | 위치 | 설명 |
 |------|------|------|
 | DB/API 사용 가이드 | `docs/DB_API_GUIDE.md` | 초보자용 DB 및 API 사용법 |
+| 예보정보 조회 가이드 | `docs/FORECAST_API_GUIDE.md` | Collector API 사용법 |
 | 지역 전체 목록 | `docs/REGIONS_FULL_LIST.md` | 시도별 읍면동 목록 |
 | 해안 분류 완료 보고 | `docs/COASTAL_CLASSIFICATION_COMPLETE.md` | 해안 분류 작업 결과 |
 | 기상청 API 연동 | `docs/KMA_API_INTEGRATION.md` | 기상청 API 상세 |
