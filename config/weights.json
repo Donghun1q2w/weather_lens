@@ -1,0 +1,116 @@
+{
+  "themes": {
+    "sunrise": {
+      "cloud_cover": {"min": 30, "max": 60, "weight": 0.3},
+      "rain_prob": {"max": 20, "weight": 0.25},
+      "pm25": {"max": 35, "weight": 0.2},
+      "visibility": {"min": 10, "weight": 0.15},
+      "east_coast_bonus": 10
+    },
+    "sunrise_omega": {
+      "horizon_clear": {"weight": 0.25},
+      "sea_temp_diff": {"min": 5, "weight": 0.3},
+      "wind_speed": {"max": 3, "weight": 0.2},
+      "east_coast_required": true,
+      "uncertainty_note": "조건 충족 시에도 불확실성 높음, 실제 발생률 ~30%"
+    },
+    "sunset": {
+      "cloud_cover": {"min": 40, "max": 70, "weight": 0.3},
+      "rain_prob": {"max": 20, "weight": 0.25},
+      "pm25": {"max": 50, "weight": 0.2},
+      "visibility": {"min": 10, "weight": 0.15},
+      "west_coast_bonus": 10
+    },
+    "sunset_omega": {
+      "horizon_clear": {"weight": 0.25},
+      "sea_temp_diff": {"min": 5, "weight": 0.3},
+      "wind_speed": {"max": 3, "weight": 0.2},
+      "west_coast_required": true,
+      "uncertainty_note": "조건 충족 시에도 불확실성 높음, 실제 발생률 ~30%"
+    },
+    "milky_way": {
+      "moon_phase": {"target": "new_moon", "range_days": 3, "weight": 0.35},
+      "cloud_cover": {"max": 20, "weight": 0.3},
+      "light_pollution": {"max": 3, "weight": 0.25},
+      "visibility": {"min": 15, "weight": 0.1}
+    },
+    "bioluminescence": {
+      "sea_temp": {"min": 18, "max": 25, "weight": 0.3},
+      "moon_phase": {"target": "new_moon", "range_days": 5, "weight": 0.25},
+      "season": {"months": [4, 5, 6, 7, 8, 9], "weight": 0.2},
+      "south_east_coast_bonus": 10,
+      "uncertainty_note": "관측 이력 + 수온 기반 가능성, 보장 아님"
+    },
+    "sea_long_exposure": {
+      "wave_height": {"min": 0.3, "max": 1.0, "weight": 0.35},
+      "no_storm_warning": {"weight": 0.25},
+      "tide_timing": {"hours_from_low_tide": 2, "weight": 0.25},
+      "wind_speed": {"max": 8, "weight": 0.15}
+    },
+    "sea_of_clouds": {
+      "low_humidity": {"min": 85, "weight": 0.3},
+      "temp_inversion": {"weight": 0.3},
+      "wind_speed": {"max": 3, "weight": 0.2},
+      "elevation": {"min": 500, "weight": 0.2}
+    },
+    "star_trail": {
+      "moon_phase": {"target": "new_moon", "range_days": 5, "weight": 0.3},
+      "cloud_cover": {"max": 15, "weight": 0.35},
+      "light_pollution": {"max": 4, "weight": 0.2},
+      "wind_speed": {"max": 5, "weight": 0.15},
+      "note": "4시간+ 장노출 필요, 삼각대 필수"
+    },
+    "night_cityscape": {
+      "cloud_cover": {"max": 50, "weight": 0.25},
+      "rain_prob": {"max": 10, "weight": 0.3},
+      "visibility": {"min": 10, "weight": 0.25},
+      "wind_speed": {"max": 10, "weight": 0.2},
+      "note": "일몰 후 30분~1시간 매직아워 최적"
+    },
+    "fog_landscape": {
+      "humidity": {"min": 90, "weight": 0.35},
+      "temp_diff_day_night": {"min": 8, "weight": 0.25},
+      "wind_speed": {"max": 2, "weight": 0.25},
+      "rain_prob": {"max": 20, "weight": 0.15},
+      "note": "새벽/이른 아침 최적, 호수/강가 추천"
+    },
+    "reflection": {
+      "wind_speed": {"max": 2, "weight": 0.4},
+      "rain_prob": {"max": 10, "weight": 0.25},
+      "cloud_cover": {"min": 20, "max": 60, "weight": 0.2},
+      "visibility": {"min": 10, "weight": 0.15},
+      "note": "바람 없는 수면 필수, 일출/일몰 추천"
+    },
+    "golden_hour": {
+      "cloud_cover": {"min": 20, "max": 50, "weight": 0.35},
+      "rain_prob": {"max": 15, "weight": 0.25},
+      "pm25": {"max": 50, "weight": 0.2},
+      "visibility": {"min": 8, "weight": 0.2},
+      "note": "일출/일몰 전후 1시간"
+    },
+    "blue_hour": {
+      "cloud_cover": {"max": 40, "weight": 0.3},
+      "rain_prob": {"max": 10, "weight": 0.3},
+      "visibility": {"min": 10, "weight": 0.25},
+      "pm25": {"max": 40, "weight": 0.15},
+      "note": "일출 30분 전 / 일몰 30분 후"
+    },
+    "frost_rime": {
+      "temp": {"max": -5, "weight": 0.35},
+      "humidity": {"min": 85, "weight": 0.3},
+      "wind_speed": {"max": 3, "weight": 0.2},
+      "cloud_cover": {"max": 30, "weight": 0.15},
+      "season": {"months": [11, 12, 1, 2]},
+      "note": "영하 5도 이하 + 고습도, 산악지역 추천"
+    },
+    "moonrise": {
+      "moon_phase": {"target": "full_moon", "range_days": 2, "weight": 0.4},
+      "cloud_cover": {"max": 30, "weight": 0.3},
+      "visibility": {"min": 15, "weight": 0.2},
+      "pm25": {"max": 35, "weight": 0.1},
+      "note": "보름달 전후 2일, 일출/일몰 시간대 최적"
+    }
+  },
+  "version": "2.0",
+  "last_updated": "2026-01-30"
+}

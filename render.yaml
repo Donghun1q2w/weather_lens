@@ -1,0 +1,36 @@
+# Render deployment configuration for PhotoSpot Korea
+services:
+  - type: web
+    name: photospot-korea
+    runtime: python
+    plan: free  # Free tier with cold starts
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:fastapi_app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # API Keys - Set these in Render dashboard
+      - key: KMA_API_KEY
+        sync: false
+      - key: AIRKOREA_API_KEY
+        sync: false
+      - key: KHOA_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+      # Optional: Supabase (expansion phase)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+    healthCheckPath: /health

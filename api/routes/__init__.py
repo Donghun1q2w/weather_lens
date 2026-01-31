@@ -1,0 +1,1 @@
+"""PhotoSpot Korea - API Routes"""
