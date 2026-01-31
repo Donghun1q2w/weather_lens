@@ -193,13 +193,13 @@ def fetch_openmeteo(lat, lon, hourly_mode=False):
         return None
 
 
-def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=1000):
+def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=100):
     """Open-Meteo Bulk API로 여러 위치의 날씨 데이터 일괄 수집
 
     Args:
         regions: 지역 목록 (lat, lon 포함)
         hourly_mode: True면 72시간 전체 데이터 반환
-        batch_size: 한 번에 요청할 좌표 수 (최대 1000)
+        batch_size: 한 번에 요청할 좌표 수 (URL 길이 제한으로 최대 100개 권장)
 
     Returns:
         dict: {region_code: weather_data} 형태
@@ -280,8 +280,77 @@ def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=1000):
                         "wind_speed": hourly["wind_speed_10m"][idx_h] if idx_h < len(hourly["wind_speed_10m"]) else None,
                     }
 
-            time.sleep(1)  # API 부하 방지 (배치 간)
+            time.sleep(2)  # API Rate Limit 방지 (배치 간 2초 대기)
 
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429:
+                # Rate Limit 초과 - 5초 대기 후 재시도
+                print(f"\n  ⚠️ 배치 {batch_num} Rate Limit 초과, 5초 대기 후 재시도...")
+                time.sleep(5)
+                try:
+                    response = requests.get(OPENMETEO_URL, params=params, timeout=60)
+                    response.raise_for_status()
+                    data = response.json()
+
+                    if isinstance(data, list):
+                        responses = data
+                    else:
+                        responses = [data]
+
+                    for idx, (region, _) in enumerate(batch):
+                        if idx >= len(responses):
+                            continue
+                        location_data = responses[idx]
+                        if "hourly" not in location_data:
+                            continue
+                        hourly = location_data["hourly"]
+                        times = hourly.get("time", [])
+
+                        if hourly_mode:
+                            hourly_data = []
+                            for i in range(len(times)):
+                                hourly_data.append({
+                                    "datetime": times[i],
+                                    "temperature": hourly["temperature_2m"][i] if i < len(hourly["temperature_2m"]) else None,
+                                    "humidity": hourly["relative_humidity_2m"][i] if i < len(hourly["relative_humidity_2m"]) else None,
+                                    "rain_probability": hourly["precipitation_probability"][i] if i < len(hourly["precipitation_probability"]) else None,
+                                    "cloud_cover": hourly["cloud_cover"][i] if i < len(hourly["cloud_cover"]) else None,
+                                    "wind_speed": hourly["wind_speed_10m"][i] if i < len(hourly["wind_speed_10m"]) else None,
+                                })
+                            results[region["code"]] = {
+                                "hourly": hourly_data,
+                                "current": hourly_data[datetime.now().hour] if hourly_data else None
+                            }
+                        else:
+                            current_hour = datetime.now().hour
+                            idx_h = current_hour
+                            results[region["code"]] = {
+                                "temperature": hourly["temperature_2m"][idx_h] if idx_h < len(hourly["temperature_2m"]) else None,
+                                "humidity": hourly["relative_humidity_2m"][idx_h] if idx_h < len(hourly["relative_humidity_2m"]) else None,
+                                "rain_probability": hourly["precipitation_probability"][idx_h] if idx_h < len(hourly["precipitation_probability"]) else None,
+                                "cloud_cover": hourly["cloud_cover"][idx_h] if idx_h < len(hourly["cloud_cover"]) else None,
+                                "wind_speed": hourly["wind_speed_10m"][idx_h] if idx_h < len(hourly["wind_speed_10m"]) else None,
+                            }
+                    print(f"  재시도 성공")
+                    time.sleep(2)
+                except Exception as retry_e:
+                    print(f"\n  ⚠️ 배치 {batch_num} 재시도 실패: {retry_e}")
+                    # 실패한 배치는 개별 호출로 폴백
+                    for region, _ in batch:
+                        if region["code"] not in results:
+                            weather = fetch_openmeteo(region["lat"], region["lon"], hourly_mode)
+                            if weather:
+                                results[region["code"]] = weather
+                            time.sleep(0.2)
+            else:
+                print(f"\n  ⚠️ 배치 {batch_num} 오류: {e}")
+                # 실패한 배치는 개별 호출로 폴백
+                for region, _ in batch:
+                    if region["code"] not in results:
+                        weather = fetch_openmeteo(region["lat"], region["lon"], hourly_mode)
+                        if weather:
+                            results[region["code"]] = weather
+                        time.sleep(0.2)
         except Exception as e:
             print(f"\n  ⚠️ 배치 {batch_num} 오류: {e}")
             # 실패한 배치는 개별 호출로 폴백
@@ -290,7 +359,7 @@ def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=1000):
                     weather = fetch_openmeteo(region["lat"], region["lon"], hourly_mode)
                     if weather:
                         results[region["code"]] = weather
-                    time.sleep(0.1)
+                    time.sleep(0.2)
 
     print(f"\r  Bulk API 완료: {len(results)}/{len(valid_regions)} 성공                    ")
     return results
