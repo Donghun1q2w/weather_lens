@@ -172,27 +172,68 @@ def filter_3hour_intervals(weather_data: Dict[str, Dict], days: int = 2) -> Dict
 # STEP 3: 지역-해수욕장 매칭 (Placeholder)
 # ============================================================================
 
-def get_merged_forecast_data(region_data: Dict, beach_data: Optional[Dict] = None) -> Dict:
+def get_merged_forecast_data(
+    region_data: Dict[str, List],
+    regions: List[Dict],
+    beach_data: Optional[Dict[str, List]] = None,
+    beaches: Optional[List[Dict]] = None
+) -> Dict:
     """
     지역 예보와 해수욕장 예보 매칭
 
     Args:
-        region_data: 지역별 예보 데이터
-        beach_data: 해수욕장별 예보 데이터 (선택)
+        region_data: 지역별 예보 데이터 (Dict[region_code, hourly_data])
+        regions: 지역 정보 리스트
+        beach_data: 해수욕장별 예보 데이터 (Dict[beach_code, hourly_data], 선택)
+        beaches: 해수욕장 정보 리스트 (선택)
 
     Returns:
         병합된 예보 데이터
+        {
+            region_code: {
+                "region": {"name": str, "weather": List[hourly_data]},
+                "beaches": [{"beach_num": int, "name": str, "weather": List[hourly_data]}]
+            }
+        }
     """
     print("\n[3/5] 지역-해수욕장 매칭 중...")
 
-    # 현재는 단순히 region_data를 반환
-    # 추후 processors.region_beach_merger를 사용하여 병합
-    merged = region_data.copy()
+    # 지역 정보 딕셔너리 생성 (빠른 조회)
+    region_info = {r["code"]: r for r in regions}
 
-    # TODO: 해수욕장 데이터가 있으면 매칭하여 병합
-    if beach_data:
+    # 병합된 데이터 구조 초기화
+    merged = {}
+
+    for region_code, hourly_data in region_data.items():
+        region = region_info.get(region_code, {})
+        merged[region_code] = {
+            "region": {
+                "name": region.get("name", "알 수 없음"),
+                "weather": hourly_data
+            },
+            "beaches": []
+        }
+
+    # 해수욕장 데이터가 있으면 매칭
+    if beach_data and beaches:
         print(f"  해수욕장 데이터: {len(beach_data)}개")
-        # 병합 로직 추가 예정
+
+        for beach in beaches:
+            region_code = beach.get("region_code")
+            beach_code = beach.get("code")
+
+            if not region_code or not beach_code:
+                continue
+
+            if region_code in merged and beach_code in beach_data:
+                merged[region_code]["beaches"].append({
+                    "beach_num": beach["beach_num"],
+                    "name": beach["name"],
+                    "weather": beach_data[beach_code]
+                })
+
+        total_beaches = sum(len(data["beaches"]) for data in merged.values())
+        print(f"  매칭된 해수욕장: {total_beaches}개")
 
     print(f"  병합 완료: {len(merged)}개 지역")
     return merged
@@ -207,7 +248,7 @@ def batch_calculate_scores(merged_data: Dict) -> Dict:
     테마별 점수 계산
 
     Args:
-        merged_data: 병합된 예보 데이터
+        merged_data: 병합된 예보 데이터 (region + beaches 구조)
 
     Returns:
         점수가 포함된 데이터
@@ -216,10 +257,12 @@ def batch_calculate_scores(merged_data: Dict) -> Dict:
 
     scores_data = {}
 
-    for region_code, hourly_data in merged_data.items():
+    for region_code, data in merged_data.items():
+        # 지역 날씨에 대한 점수 계산
         region_scores = []
+        region_weather = data.get("region", {}).get("weather", [])
 
-        for hour_data in hourly_data:
+        for hour_data in region_weather:
             # 간단한 점수 계산 (예시)
             cloud = hour_data.get("cloud_cover", 50) or 50
             rain_prob = hour_data.get("rain_probability", 50) or 50
@@ -239,9 +282,45 @@ def batch_calculate_scores(merged_data: Dict) -> Dict:
                 "scores": scores,
             })
 
-        scores_data[region_code] = region_scores
+        # 해수욕장별 점수 계산
+        beaches_scores = []
+        for beach in data.get("beaches", []):
+            beach_hourly_scores = []
 
-    print(f"  점수 계산 완료: {len(scores_data)}개 지역")
+            for hour_data in beach.get("weather", []):
+                cloud = hour_data.get("cloud_cover", 50) or 50
+                rain_prob = hour_data.get("rain_probability", 50) or 50
+                wind = hour_data.get("wind_speed", 5) or 5
+
+                scores = {
+                    "sunrise": max(0, 100 - abs(cloud - 45) - rain_prob),
+                    "sunset": max(0, 100 - abs(cloud - 55) - rain_prob),
+                    "milky_way": max(0, 100 - cloud * 2 - rain_prob),
+                    "star_trail": max(0, 100 - cloud * 2 - wind * 5),
+                }
+
+                beach_hourly_scores.append({
+                    "datetime": hour_data["datetime"],
+                    "weather": hour_data,
+                    "scores": scores,
+                })
+
+            beaches_scores.append({
+                "beach_num": beach["beach_num"],
+                "name": beach["name"],
+                "scores": beach_hourly_scores
+            })
+
+        scores_data[region_code] = {
+            "region": {
+                "name": data.get("region", {}).get("name", "알 수 없음"),
+                "scores": region_scores
+            },
+            "beaches": beaches_scores
+        }
+
+    total_beaches = sum(len(d["beaches"]) for d in scores_data.values())
+    print(f"  점수 계산 완료: {len(scores_data)}개 지역, {total_beaches}개 해수욕장")
     return scores_data
 
 
@@ -337,6 +416,40 @@ def load_regions_from_db() -> List[Dict]:
     return regions
 
 
+def load_beaches_from_db() -> List[Dict]:
+    """데이터베이스에서 해수욕장 목록 로드"""
+    print("\n해수욕장 데이터 로드 중...")
+
+    if not DB_PATH.exists():
+        print(f"  경고: 데이터베이스를 찾을 수 없습니다: {DB_PATH}")
+        return []
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT beach_num, name, lat, lon, region_code
+        FROM beaches
+        WHERE lat IS NOT NULL AND lon IS NOT NULL
+    """)
+
+    beaches = []
+    for row in cursor.fetchall():
+        beaches.append({
+            "code": f"beach_{row[0]}",
+            "beach_num": row[0],
+            "name": row[1],
+            "lat": row[2],
+            "lon": row[3],
+            "region_code": row[4],
+        })
+
+    conn.close()
+
+    print(f"  로드 완료: {len(beaches)}개 해수욕장")
+    return beaches
+
+
 # ============================================================================
 # 메인 함수
 # ============================================================================
@@ -372,6 +485,9 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
         print("\n오류: 지역 데이터를 로드할 수 없습니다.")
         return
 
+    # 해수욕장 데이터 로드
+    beaches = load_beaches_from_db()
+
     # 샘플 모드
     if sample_size and sample_size < len(regions):
         import random
@@ -385,11 +501,22 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
         print("\n오류: 날씨 데이터 수집 실패")
         return
 
+    # 해수욕장 날씨 데이터 수집
+    beach_weather_data = {}
+    if beaches:
+        beach_weather_data = fetch_all_weather_data(beaches, batch_size=100)
+
     # 2. 3시간 간격 필터링
     filtered_data = filter_3hour_intervals(weather_data, days=days)
+    filtered_beach_data = filter_3hour_intervals(beach_weather_data, days=days) if beach_weather_data else {}
 
     # 3. 지역-해수욕장 매칭
-    merged_data = get_merged_forecast_data(filtered_data)
+    merged_data = get_merged_forecast_data(
+        filtered_data,
+        regions,
+        filtered_beach_data if filtered_beach_data else None,
+        beaches if beaches else None
+    )
 
     # 4. 점수 계산
     scores_data = batch_calculate_scores(merged_data)
@@ -400,6 +527,7 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
     scores_file = save_scores_json(scores_data, "forecast_scores.json")
 
     # 완료 메시지
+    total_beaches = sum(len(d.get("beaches", [])) for d in merged_data.values())
     print("\n" + "=" * 80)
     print("완료!")
     print("=" * 80)
@@ -407,6 +535,7 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
     print(f"  1. 통합 예보: {forecast_file}")
     print(f"  2. 점수 데이터: {scores_file}")
     print(f"\n처리 지역: {len(merged_data)}개")
+    print(f"처리 해수욕장: {total_beaches}개")
     print(f"완료 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
 
