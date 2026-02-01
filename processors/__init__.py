@@ -34,6 +34,16 @@ from processors.region_loader import (
     load_all_regions,
     load_region,
 )
+from processors.region_beach_merger import (
+    get_region_beach_mapping,
+    merge_region_with_beaches,
+    get_merged_forecast_data,
+)
+from processors.weather_integrator import (
+    fetch_all_weather_data,
+    filter_3hour_intervals,
+    get_integrated_weather,
+)
 
 __all__ = [
     # Data merger
@@ -59,4 +69,12 @@ __all__ = [
     "initialize_regions_db",
     "load_all_regions",
     "load_region",
+    # Region-beach merger
+    "get_region_beach_mapping",
+    "merge_region_with_beaches",
+    "get_merged_forecast_data",
+    # Weather integrator
+    "fetch_all_weather_data",
+    "filter_3hour_intervals",
+    "get_integrated_weather",
 ]

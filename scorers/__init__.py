@@ -21,6 +21,13 @@ from scorers.theme_scorers import (
     get_all_scorers,
     ALL_SCORERS,
 )
+from scorers.batch_scorer import (
+    calculate_photo_scores,
+    batch_calculate_scores,
+    get_best_times,
+    get_location_best_themes,
+    calculate_scores_for_timerange,
+)
 
 __all__ = [
     'BaseScorer',
@@ -43,4 +50,9 @@ __all__ = [
     'get_scorer_by_theme_id',
     'get_all_scorers',
     'ALL_SCORERS',
+    'calculate_photo_scores',
+    'batch_calculate_scores',
+    'get_best_times',
+    'get_location_best_themes',
+    'calculate_scores_for_timerange',
 ]

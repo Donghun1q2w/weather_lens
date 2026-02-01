@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+"""
+통합 예보 리포트 생성 스크립트
+
+전체 프로세스:
+1. 날씨 데이터 수집 (Bulk API)
+2. 3시간 간격 필터링 (2일치)
+3. 지역-해수욕장 매칭
+4. 점수 계산
+5. 파일 출력 (JSON)
+"""
+
+import argparse
+import asyncio
+import json
+import sqlite3
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import requests
+
+# 프로젝트 경로 설정
+PROJECT_ROOT = Path(__file__).parent.parent
+RESULT_DIR = PROJECT_ROOT / "result"
+RESULT_DIR.mkdir(exist_ok=True)
+
+# 데이터베이스 경로
+DB_PATH = PROJECT_ROOT / "data" / "regions.db"
+
+# Open-Meteo API
+OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
+
+
+# ============================================================================
+# STEP 1: 날씨 데이터 수집 (Bulk API)
+# ============================================================================
+
+def fetch_all_weather_data(regions: List[Dict], batch_size: int = 100) -> Dict[str, Dict]:
+    """
+    Bulk API를 사용하여 모든 지역의 72시간 날씨 데이터 수집
+
+    Args:
+        regions: 지역 목록 (code, lat, lon 포함)
+        batch_size: 배치당 좌표 수 (기본 100)
+
+    Returns:
+        Dict[region_code, weather_data]: 지역 코드별 날씨 데이터
+    """
+    print("\n[1/5] 날씨 데이터 수집 중 (Bulk API)...")
+    results = {}
+    total = len(regions)
+    valid_regions = [(r, i) for i, r in enumerate(regions) if r.get("lat") and r.get("lon")]
+
+    print(f"  총 {len(valid_regions)}개 지역, {(len(valid_regions) + batch_size - 1) // batch_size}개 배치")
+
+    for batch_start in range(0, len(valid_regions), batch_size):
+        batch = valid_regions[batch_start:batch_start + batch_size]
+        batch_num = batch_start // batch_size + 1
+        total_batches = (len(valid_regions) + batch_size - 1) // batch_size
+
+        print(f"\r  배치 {batch_num}/{total_batches} ({len(batch)}개 좌표)...", end="", flush=True)
+
+        lats = ",".join(str(r["lat"]) for r, _ in batch)
+        lons = ",".join(str(r["lon"]) for r, _ in batch)
+
+        try:
+            params = {
+                "latitude": lats,
+                "longitude": lons,
+                "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,wind_speed_10m,visibility",
+                "timezone": "Asia/Seoul",
+                "forecast_days": 3,
+            }
+
+            response = requests.get(OPENMETEO_URL, params=params, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+
+            # 단일/다중 응답 처리
+            if isinstance(data, list):
+                responses = data
+            else:
+                responses = [data]
+
+            # 각 지역별 결과 처리
+            for idx, (region, _) in enumerate(batch):
+                if idx >= len(responses):
+                    continue
+
+                location_data = responses[idx]
+                if "hourly" not in location_data:
+                    continue
+
+                hourly = location_data["hourly"]
+                times = hourly.get("time", [])
+
+                hourly_data = []
+                for i in range(len(times)):
+                    hourly_data.append({
+                        "datetime": times[i],
+                        "temperature": hourly["temperature_2m"][i] if i < len(hourly["temperature_2m"]) else None,
+                        "humidity": hourly["relative_humidity_2m"][i] if i < len(hourly["relative_humidity_2m"]) else None,
+                        "rain_probability": hourly["precipitation_probability"][i] if i < len(hourly["precipitation_probability"]) else None,
+                        "cloud_cover": hourly["cloud_cover"][i] if i < len(hourly["cloud_cover"]) else None,
+                        "wind_speed": hourly["wind_speed_10m"][i] if i < len(hourly["wind_speed_10m"]) else None,
+                        "visibility": hourly.get("visibility", [None] * len(times))[i] if "visibility" in hourly else None,
+                    })
+
+                results[region["code"]] = {"hourly": hourly_data}
+
+            time.sleep(2)  # API Rate Limit 방지
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429:
+                print(f"\n  Rate Limit 초과, 5초 대기 후 재시도...")
+                time.sleep(5)
+                # 재시도 로직 생략 (간결성 위해)
+            else:
+                print(f"\n  배치 {batch_num} 오류: {e}")
+        except Exception as e:
+            print(f"\n  배치 {batch_num} 오류: {e}")
+
+    print(f"\r  Bulk API 완료: {len(results)}/{len(valid_regions)} 성공              ")
+    return results
+
+
+# ============================================================================
+# STEP 2: 3시간 간격 필터링
+# ============================================================================
+
+def filter_3hour_intervals(weather_data: Dict[str, Dict], days: int = 2) -> Dict[str, List]:
+    """
+    72시간 데이터에서 3시간 간격만 필터링 (00, 03, 06, 09, 12, 15, 18, 21시)
+
+    Args:
+        weather_data: fetch_all_weather_data 결과
+        days: 예보 일수 (기본 2일)
+
+    Returns:
+        Dict[region_code, filtered_hourly_data]
+    """
+    print("\n[2/5] 3시간 간격 필터링 중...")
+    filtered = {}
+
+    target_hours = {0, 3, 6, 9, 12, 15, 18, 21}
+    max_datetime = datetime.now() + timedelta(days=days)
+
+    for region_code, data in weather_data.items():
+        hourly = data.get("hourly", [])
+        filtered_hourly = []
+
+        for hour_data in hourly:
+            dt_str = hour_data.get("datetime")
+            if not dt_str:
+                continue
+
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+
+            # 3시간 간격 체크 및 날짜 제한
+            if dt.hour in target_hours and dt <= max_datetime:
+                filtered_hourly.append(hour_data)
+
+        filtered[region_code] = filtered_hourly
+
+    print(f"  필터링 완료: {len(filtered)}개 지역")
+    return filtered
+
+
+# ============================================================================
+# STEP 3: 지역-해수욕장 매칭 (Placeholder)
+# ============================================================================
+
+def get_merged_forecast_data(region_data: Dict, beach_data: Optional[Dict] = None) -> Dict:
+    """
+    지역 예보와 해수욕장 예보 매칭
+
+    Args:
+        region_data: 지역별 예보 데이터
+        beach_data: 해수욕장별 예보 데이터 (선택)
+
+    Returns:
+        병합된 예보 데이터
+    """
+    print("\n[3/5] 지역-해수욕장 매칭 중...")
+
+    # 현재는 단순히 region_data를 반환
+    # 추후 processors.region_beach_merger를 사용하여 병합
+    merged = region_data.copy()
+
+    # TODO: 해수욕장 데이터가 있으면 매칭하여 병합
+    if beach_data:
+        print(f"  해수욕장 데이터: {len(beach_data)}개")
+        # 병합 로직 추가 예정
+
+    print(f"  병합 완료: {len(merged)}개 지역")
+    return merged
+
+
+# ============================================================================
+# STEP 4: 점수 계산 (Placeholder)
+# ============================================================================
+
+def batch_calculate_scores(merged_data: Dict) -> Dict:
+    """
+    테마별 점수 계산
+
+    Args:
+        merged_data: 병합된 예보 데이터
+
+    Returns:
+        점수가 포함된 데이터
+    """
+    print("\n[4/5] 테마별 점수 계산 중...")
+
+    scores_data = {}
+
+    for region_code, hourly_data in merged_data.items():
+        region_scores = []
+
+        for hour_data in hourly_data:
+            # 간단한 점수 계산 (예시)
+            cloud = hour_data.get("cloud_cover", 50) or 50
+            rain_prob = hour_data.get("rain_probability", 50) or 50
+            wind = hour_data.get("wind_speed", 5) or 5
+
+            # 테마별 점수 (간단한 알고리즘)
+            scores = {
+                "sunrise": max(0, 100 - abs(cloud - 45) - rain_prob),
+                "sunset": max(0, 100 - abs(cloud - 55) - rain_prob),
+                "milky_way": max(0, 100 - cloud * 2 - rain_prob),
+                "star_trail": max(0, 100 - cloud * 2 - wind * 5),
+            }
+
+            region_scores.append({
+                "datetime": hour_data["datetime"],
+                "weather": hour_data,
+                "scores": scores,
+            })
+
+        scores_data[region_code] = region_scores
+
+    print(f"  점수 계산 완료: {len(scores_data)}개 지역")
+    return scores_data
+
+
+# ============================================================================
+# STEP 5: 파일 출력
+# ============================================================================
+
+def save_forecast_json(merged_data: Dict, filename: str):
+    """통합 예보 데이터를 JSON 파일로 저장"""
+    timestamp = datetime.now()
+    timestamped_filename = f"forecast_merged_{timestamp.strftime('%Y%m%d_%H%M%S')}.json"
+    filepath = RESULT_DIR / timestamped_filename
+
+    output = {
+        "generated_at": timestamp.isoformat(),
+        "forecast_range": {
+            "start": timestamp.strftime('%Y-%m-%d'),
+            "end": (timestamp + timedelta(days=2)).strftime('%Y-%m-%d'),
+        },
+        "total_regions": len(merged_data),
+        "data": merged_data,
+    }
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    print(f"\n  저장: {filepath}")
+    return filepath
+
+
+def save_scores_json(scores_data: Dict, filename: str):
+    """점수 데이터를 JSON 파일로 저장"""
+    timestamp = datetime.now()
+    timestamped_filename = f"forecast_scores_{timestamp.strftime('%Y%m%d_%H%M%S')}.json"
+    filepath = RESULT_DIR / timestamped_filename
+
+    output = {
+        "generated_at": timestamp.isoformat(),
+        "total_regions": len(scores_data),
+        "data": scores_data,
+    }
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    print(f"  저장: {filepath}")
+    return filepath
+
+
+# ============================================================================
+# 데이터베이스 로더
+# ============================================================================
+
+def load_regions_from_db() -> List[Dict]:
+    """데이터베이스에서 지역 목록 로드"""
+    print("\n지역 데이터 로드 중...")
+
+    if not DB_PATH.exists():
+        print(f"  경고: 데이터베이스를 찾을 수 없습니다: {DB_PATH}")
+        return []
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT code, name, sido, sigungu, emd, lat, lon, nx, ny, elevation,
+               is_coastal, is_east_coast, is_west_coast
+        FROM regions
+        ORDER BY sido, sigungu, emd
+    """)
+
+    regions = []
+    for row in cursor.fetchall():
+        regions.append({
+            "code": row[0],
+            "name": row[1],
+            "sido": row[2],
+            "sigungu": row[3],
+            "emd": row[4],
+            "lat": row[5],
+            "lon": row[6],
+            "nx": row[7],
+            "ny": row[8],
+            "elevation": row[9] or 0,
+            "is_coastal": bool(row[10]),
+            "is_east_coast": bool(row[11]),
+            "is_west_coast": bool(row[12]),
+        })
+
+    conn.close()
+
+    print(f"  로드 완료: {len(regions)}개 지역")
+    return regions
+
+
+# ============================================================================
+# 메인 함수
+# ============================================================================
+
+def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional[int] = None):
+    """
+    통합 예보 리포트 생성 메인 프로세스
+
+    Args:
+        days: 예보 일수 (기본 2)
+        output_dir: 출력 디렉토리 (기본 result/)
+        sample_size: 샘플 크기 (테스트용, None이면 전체)
+    """
+    print("=" * 80)
+    print("통합 예보 리포트 생성 스크립트")
+    print("=" * 80)
+    print(f"시작 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"예보 일수: {days}일")
+    if sample_size:
+        print(f"샘플 모드: {sample_size}개 지역")
+    print("=" * 80)
+
+    # 출력 디렉토리 설정
+    if output_dir:
+        global RESULT_DIR
+        RESULT_DIR = output_dir
+        RESULT_DIR.mkdir(exist_ok=True)
+
+    # 지역 데이터 로드
+    regions = load_regions_from_db()
+
+    if not regions:
+        print("\n오류: 지역 데이터를 로드할 수 없습니다.")
+        return
+
+    # 샘플 모드
+    if sample_size and sample_size < len(regions):
+        import random
+        regions = random.sample(regions, sample_size)
+        print(f"\n샘플 {sample_size}개 지역 선택됨")
+
+    # 1. 날씨 데이터 수집 (Bulk API)
+    weather_data = fetch_all_weather_data(regions, batch_size=100)
+
+    if not weather_data:
+        print("\n오류: 날씨 데이터 수집 실패")
+        return
+
+    # 2. 3시간 간격 필터링
+    filtered_data = filter_3hour_intervals(weather_data, days=days)
+
+    # 3. 지역-해수욕장 매칭
+    merged_data = get_merged_forecast_data(filtered_data)
+
+    # 4. 점수 계산
+    scores_data = batch_calculate_scores(merged_data)
+
+    # 5. 파일 출력
+    print("\n[5/5] 파일 저장 중...")
+    forecast_file = save_forecast_json(merged_data, "forecast_merged.json")
+    scores_file = save_scores_json(scores_data, "forecast_scores.json")
+
+    # 완료 메시지
+    print("\n" + "=" * 80)
+    print("완료!")
+    print("=" * 80)
+    print(f"\n출력 파일:")
+    print(f"  1. 통합 예보: {forecast_file}")
+    print(f"  2. 점수 데이터: {scores_file}")
+    print(f"\n처리 지역: {len(merged_data)}개")
+    print(f"완료 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 80)
+
+
+# ============================================================================
+# CLI 인터페이스
+# ============================================================================
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="통합 예보 리포트 생성 스크립트",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+사용 예시:
+  # 전체 지역, 2일치 예보
+  python generate_forecast_report.py
+
+  # 3일치 예보
+  python generate_forecast_report.py --days 3
+
+  # 테스트 모드 (10개 지역만)
+  python generate_forecast_report.py --sample 10
+
+  # 출력 디렉토리 지정
+  python generate_forecast_report.py --output-dir /path/to/output
+        """
+    )
+
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=2,
+        help="예보 일수 (기본 2일)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="출력 디렉토리 (기본 result/)"
+    )
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        help="샘플 크기 (테스트용, 지정하지 않으면 전체 지역)"
+    )
+
+    args = parser.parse_args()
+
+    try:
+        main(
+            days=args.days,
+            output_dir=args.output_dir,
+            sample_size=args.sample
+        )
+    except KeyboardInterrupt:
+        print("\n\n중단됨")
+    except Exception as e:
+        print(f"\n오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
