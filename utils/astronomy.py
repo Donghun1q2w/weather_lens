@@ -127,6 +127,53 @@ def get_moon_times(date: datetime = None, lat: float = None, lon: float = None) 
         }
 
 
+def get_sunrise_sunset(date: datetime = None, lat: float = None, lon: float = None) -> Dict:
+    """
+    일출/일몰 시간 계산 (ephem 기반, 연중 가능)
+
+    Args:
+        date: 계산할 날짜 (기본: 오늘)
+        lat: 위도
+        lon: 경도
+
+    Returns:
+        {
+            "sunrise": "HH:MM" (KST),
+            "sunset": "HH:MM" (KST),
+            "sunrise_datetime": datetime,
+            "sunset_datetime": datetime
+        }
+    """
+    if date is None:
+        date = datetime.now()
+
+    observer = get_observer(lat, lon, date)
+    sun = ephem.Sun()
+
+    try:
+        # UTC로 계산 후 KST로 변환 (+9시간)
+        sunrise_utc = observer.next_rising(sun)
+        sunset_utc = observer.next_setting(sun)
+
+        sunrise_kst = ephem.Date(sunrise_utc).datetime() + timedelta(hours=9)
+        sunset_kst = ephem.Date(sunset_utc).datetime() + timedelta(hours=9)
+
+        return {
+            "sunrise": sunrise_kst.strftime("%H:%M"),
+            "sunset": sunset_kst.strftime("%H:%M"),
+            "sunrise_datetime": sunrise_kst,
+            "sunset_datetime": sunset_kst,
+        }
+    except (ephem.AlwaysUpError, ephem.NeverUpError):
+        return {
+            "sunrise": None,
+            "sunset": None,
+            "sunrise_datetime": None,
+            "sunset_datetime": None,
+            "note": "극지방 또는 계산 불가"
+        }
+
+
 def get_astronomical_twilight(date: datetime = None, lat: float = None, lon: float = None) -> Dict:
     """
     천문박명 시간 계산 (태양이 지평선 아래 18도)

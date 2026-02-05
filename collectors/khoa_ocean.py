@@ -1,6 +1,6 @@
 """KHOA (국립해양조사원 바다누리) Ocean Data Collector"""
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import logging
 from .base_collector import BaseCollector, CollectorError
 
@@ -18,20 +18,20 @@ class KHOAOceanCollector(BaseCollector):
     """
 
     # Base URLs for different ocean data services
-    TIDE_URL = "http://www.khoa.go.kr/api/oceangrid/tidalBu/search.do"
+    TIDE_URL = "https://apis.data.go.kr/1192136/tideFcstTime/GetTideFcstTimeApiService"
     WAVE_URL = "http://www.khoa.go.kr/api/oceangrid/obsWave/search.do"
     TEMP_URL = "http://www.khoa.go.kr/api/oceangrid/obsTemp/search.do"
 
     def __init__(self, api_key: str):
         """
-        Initialize KHOA Ocean Collector
+        Initialize Ocean Collector
 
         Args:
-            api_key: 바다누리 API 인증키
+            api_key: 공공데이터포털 API 인증키 (KMA_API_KEY or BEACH_API_KEY)
         """
         super().__init__(api_key)
         if not api_key:
-            raise ValueError("KHOA API key is required")
+            raise ValueError("API key is required (use KMA_API_KEY or BEACH_API_KEY)")
 
     async def collect(
         self,
@@ -118,50 +118,108 @@ class KHOAOceanCollector(BaseCollector):
         end_date: datetime
     ) -> Dict[str, Any]:
         """
-        Collect tide forecast data (조석예보)
+        Collect tide forecast data (조석예보) from data.go.kr
 
         Args:
-            station_id: Ocean station ID
+            station_id: Ocean station ID (e.g., "DT_0018")
             start_date: Start date
             end_date: End date
 
         Returns:
-            Dictionary with tide data
+            Dictionary with tide data including high/low tide events
         """
         params = {
-            "ServiceKey": self.api_key,
-            "ObsCode": station_id,
-            "Date": start_date.strftime("%Y%m%d"),
-            "ResultType": "json"
+            "serviceKey": self.api_key,
+            "obsCode": station_id,
+            "reqDate": start_date.strftime("%Y%m%d"),
+            "min": 60,  # 1-hour intervals
+            "type": "json",
+            "numOfRows": 300,  # Max to get full day
+            "pageNo": 1
         }
 
         response = await self._make_request(self.TIDE_URL, params)
 
-        # Parse tide data
-        result = response.get("result", {})
+        # Parse response - data.go.kr format
+        # Response structure: {"header": {...}, "body": {...}}
+        header = response.get("header", {})
+        body = response.get("body", {})
 
-        if result.get("code") != 200:
-            raise CollectorError(f"KHOA tide API error: {result.get('message')}")
+        result_code = header.get("resultCode")
+        if result_code != "00":
+            result_msg = header.get("resultMsg", "Unknown error")
+            raise CollectorError(f"Tide API error: {result_msg}")
 
-        data = result.get("data", {})
-        tide_list = data.get("data", [])
+        items = body.get("items", {})
+        if isinstance(items, dict):
+            items = items.get("item", [])
+        if not items:
+            return {"station_name": None, "forecasts": []}
 
-        parsed_tides = []
-        for tide in tide_list:
-            try:
-                parsed_tides.append({
-                    "datetime": tide.get("tph_time"),  # 만조/간조 시각
-                    "type": tide.get("tph_lev"),  # "고조" or "저조"
-                    "height": float(tide.get("tph_height", 0)),  # 조위 (cm)
-                })
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Failed to parse tide entry: {str(e)}")
-                continue
+        # Handle single item case (API returns dict instead of list)
+        if isinstance(items, dict):
+            items = [items]
+
+        # Extract station info
+        station_name = items[0].get("obsvtrNm") if items else None
+
+        # Parse time-series to find high/low tides
+        parsed_tides = self._extract_high_low_tides(items)
 
         return {
-            "station_name": data.get("obs_post_name"),
-            "forecasts": parsed_tides
+            "station_name": station_name,
+            "forecasts": parsed_tides,
+            "time_series": [
+                {
+                    "datetime": item.get("predcDt"),
+                    "height": float(item.get("tdlvHgt", 0))
+                }
+                for item in items
+            ]
         }
+
+    def _extract_high_low_tides(self, items: List[Dict]) -> List[Dict]:
+        """
+        Extract high/low tide events from time-series data
+
+        Looks for local maxima (high tide) and local minima (low tide)
+
+        Note: Using min=60 (1-hour intervals) means tide times are approximate
+        (±30 minutes from actual peak/trough).
+
+        Args:
+            items: List of time-series data points with predcDt and tdlvHgt
+
+        Returns:
+            List of high/low tide events with datetime, type, and height
+        """
+        if len(items) < 3:
+            return []
+
+        tides = []
+        heights = [(item.get("predcDt"), float(item.get("tdlvHgt", 0))) for item in items]
+
+        for i in range(1, len(heights) - 1):
+            prev_h = heights[i - 1][1]
+            curr_h = heights[i][1]
+            next_h = heights[i + 1][1]
+
+            # Local maximum = high tide (고조)
+            if curr_h > prev_h and curr_h > next_h:
+                tides.append({
+                    "datetime": heights[i][0],
+                    "type": "고조",
+                    "height": curr_h
+                })
+            # Local minimum = low tide (저조)
+            elif curr_h < prev_h and curr_h < next_h:
+                tides.append({
+                    "datetime": heights[i][0],
+                    "type": "저조",
+                    "height": curr_h
+                })
+
+        return tides
 
     async def _collect_wave_data(self, station_id: str) -> Dict[str, Any]:
         """

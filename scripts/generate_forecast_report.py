@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import sqlite3
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -23,6 +24,8 @@ import requests
 
 # 프로젝트 경로 설정
 PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 RESULT_DIR = PROJECT_ROOT / "result"
 RESULT_DIR.mkdir(exist_ok=True)
 
@@ -31,6 +34,16 @@ DB_PATH = PROJECT_ROOT / "data" / "regions.db"
 
 # Open-Meteo API
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
+
+# Import collectors
+from collectors.beach_info import BeachInfoCollector
+from collectors.khoa_ocean import KHOAOceanCollector
+from config.settings import BEACH_API_KEY, KMA_API_KEY
+from utils.astronomy import get_sunrise_sunset
+from utils.ocean_mapping import find_nearest_tide_station, find_nearest_temp_station
+
+# API key fallback: BEACH_API_KEY가 없으면 KMA_API_KEY 사용
+BEACH_API_KEY_TO_USE = BEACH_API_KEY or KMA_API_KEY
 
 
 # ============================================================================
@@ -176,7 +189,8 @@ def get_merged_forecast_data(
     region_data: Dict[str, List],
     regions: List[Dict],
     beach_data: Optional[Dict[str, List]] = None,
-    beaches: Optional[List[Dict]] = None
+    beaches: Optional[List[Dict]] = None,
+    beach_marine_data: Optional[Dict[str, Dict]] = None
 ) -> Dict:
     """
     지역 예보와 해수욕장 예보 매칭
@@ -186,13 +200,24 @@ def get_merged_forecast_data(
         regions: 지역 정보 리스트
         beach_data: 해수욕장별 예보 데이터 (Dict[beach_code, hourly_data], 선택)
         beaches: 해수욕장 정보 리스트 (선택)
+        beach_marine_data: 해수욕장별 해양 데이터 (Dict[beach_code, marine_data], 선택)
 
     Returns:
         병합된 예보 데이터
         {
             region_code: {
                 "region": {"name": str, "weather": List[hourly_data]},
-                "beaches": [{"beach_num": int, "name": str, "weather": List[hourly_data]}]
+                "beaches": [{
+                    "beach_num": int,
+                    "name": str,
+                    "weather": List[hourly_data],
+                    "marine": {
+                        "wave_height": {...},
+                        "sea_temperature": {...},
+                        "tide_info": [...],
+                        "sun_info": {...}
+                    }
+                }]
             }
         }
     """
@@ -226,14 +251,23 @@ def get_merged_forecast_data(
                 continue
 
             if region_code in merged and beach_code in beach_data:
-                merged[region_code]["beaches"].append({
+                beach_entry = {
                     "beach_num": beach["beach_num"],
                     "name": beach["name"],
                     "weather": beach_data[beach_code]
-                })
+                }
+
+                # 해양 데이터 추가 (있는 경우)
+                if beach_marine_data and beach_code in beach_marine_data:
+                    beach_entry["marine"] = beach_marine_data[beach_code]
+
+                merged[region_code]["beaches"].append(beach_entry)
 
         total_beaches = sum(len(data["beaches"]) for data in merged.values())
+        beaches_with_marine = sum(1 for data in merged.values() for b in data["beaches"] if b.get("marine"))
         print(f"  매칭된 해수욕장: {total_beaches}개")
+        if beach_marine_data:
+            print(f"  해양 데이터 포함: {beaches_with_marine}개 해수욕장")
 
     print(f"  병합 완료: {len(merged)}개 지역")
     return merged
@@ -451,6 +485,170 @@ def load_beaches_from_db() -> List[Dict]:
 
 
 # ============================================================================
+# Marine Data Collection for Beaches
+# ============================================================================
+
+async def fetch_beach_marine_data(
+    beaches: List[Dict],
+    api_key: str
+) -> Dict[str, Dict]:
+    """
+    BeachInfoCollector를 사용하여 해양 데이터 수집
+
+    수집 항목:
+    - wave_height: 파고 (BeachInfo, 연중)
+    - sea_temperature: 수온 (BeachInfo, 연중)
+    - tide_info: 조석 (data.go.kr API via KHOA collector, 연중)
+    - sun_info: 일출일몰 (astronomy.py, 연중)
+
+    Args:
+        beaches: 해수욕장 목록 (beach_num, lat, lon 포함)
+        api_key: Beach/Data.go.kr API 키 (파고/수온/조석 모두 사용)
+
+    Returns:
+        Dict[beach_code, marine_data]: 해수욕장 코드별 해양 데이터
+    """
+    if not api_key:
+        print("  경고: BEACH_API_KEY 없음 - 해양 데이터 수집 건너뜀")
+        return {}
+
+    print("\n해수욕장 해양 데이터 수집 중...")
+    results = {}
+    success_count = 0
+
+    now = datetime.now()
+    search_time = now
+    base_date = now
+
+    # Ocean collector (조석용) - 루프 밖에서 초기화
+    ocean_collector = None
+    if api_key:  # Use same BEACH_API_KEY for tide data
+        try:
+            ocean_collector = KHOAOceanCollector(api_key)
+            await ocean_collector.__aenter__()
+        except Exception as e:
+            print(f"  경고: 조석 API 초기화 실패 - {str(e)}")
+            ocean_collector = None
+
+    try:
+        async with BeachInfoCollector(api_key) as collector:
+            total = len(beaches)
+            batch_size = 10  # API rate limit 관리
+
+            for batch_start in range(0, total, batch_size):
+                batch = beaches[batch_start:batch_start + batch_size]
+                batch_num = batch_start // batch_size + 1
+                total_batches = (total + batch_size - 1) // batch_size
+
+                print(f"\r  배치 {batch_num}/{total_batches} ({len(batch)}개 해수욕장)...", end="", flush=True)
+
+                # 배치 내 모든 해수욕장 데이터 수집
+                for beach in batch:
+                    beach_num = str(beach["beach_num"])
+                    beach_code = beach["code"]
+
+                    marine_data = {
+                        "wave_height": None,
+                        "sea_temperature": None,
+                        "tide_info": None,
+                        "sun_info": None
+                    }
+
+                    try:
+                        # 파고 수집
+                        wave_data = await collector.get_wave_height(beach_num, search_time)
+                        if wave_data and wave_data.get("items"):
+                            items = wave_data["items"]
+                            if items:
+                                latest = items[0]
+                                marine_data["wave_height"] = {
+                                    "height": latest.get("wave_height"),
+                                    "datetime": latest.get("datetime")
+                                }
+
+                        # 수온 수집
+                        temp_data = await collector.get_sea_temperature(beach_num, search_time)
+                        if temp_data and temp_data.get("items"):
+                            items = temp_data["items"]
+                            if items:
+                                latest = items[0]
+                                marine_data["sea_temperature"] = {
+                                    "temperature": latest.get("temperature"),
+                                    "datetime": latest.get("datetime")
+                                }
+
+                        # 조석 정보 - data.go.kr API 사용 (연중 가능)
+                        if ocean_collector and beach.get("lat") and beach.get("lon"):
+                            try:
+                                station, distance = find_nearest_tide_station(
+                                    beach["lat"], beach["lon"]
+                                )
+                                if station and distance < 100:  # 100km 이내
+                                    tide_result = await ocean_collector._collect_tide_data(
+                                        station["station_id"],
+                                        base_date,
+                                        base_date + timedelta(days=1)
+                                    )
+                                    if tide_result and tide_result.get("forecasts"):
+                                        marine_data["tide_info"] = {
+                                            "source": "data.go.kr",
+                                            "station": station["station_name"],
+                                            "distance_km": round(distance, 1),
+                                            "forecasts": tide_result["forecasts"][:4]  # 당일 4개
+                                        }
+                            except Exception as e:
+                                pass  # 조석 API 실패 시 무시
+
+                        # 일출일몰 - astronomy.py 사용 (연중 가능)
+                        if beach.get("lat") and beach.get("lon"):
+                            try:
+                                sun_result = get_sunrise_sunset(
+                                    base_date,
+                                    beach["lat"],
+                                    beach["lon"]
+                                )
+                                if sun_result.get("sunrise") and sun_result.get("sunset"):
+                                    marine_data["sun_info"] = {
+                                        "source": "astronomy",
+                                        "sunrise": sun_result["sunrise"],
+                                        "sunset": sun_result["sunset"]
+                                    }
+                            except Exception:
+                                pass  # 계산 실패 시 무시
+
+                        # 어떤 데이터라도 있으면 성공으로 간주
+                        if any([
+                            marine_data["wave_height"],
+                            marine_data["sea_temperature"],
+                            marine_data["tide_info"],
+                            marine_data["sun_info"]
+                        ]):
+                            success_count += 1
+
+                        results[beach_code] = marine_data
+
+                    except Exception as e:
+                        # 에러 발생 시 해당 해수욕장은 빈 marine_data로 설정
+                        results[beach_code] = marine_data
+
+                # 배치 간 delay (API rate limit 관리)
+                await asyncio.sleep(1.5)
+
+        print(f"\r  해양 데이터 수집 완료: {success_count}/{total} 성공                    ")
+    except Exception as e:
+        print(f"\n  오류: 해양 데이터 수집 실패 - {str(e)}")
+    finally:
+        # Ocean collector 정리
+        if ocean_collector:
+            try:
+                await ocean_collector.__aexit__(None, None, None)
+            except Exception:
+                pass
+
+    return results
+
+
+# ============================================================================
 # 메인 함수
 # ============================================================================
 
@@ -506,16 +704,24 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
     if beaches:
         beach_weather_data = fetch_all_weather_data(beaches, batch_size=100)
 
+    # 해수욕장 해양 데이터 수집 (비동기)
+    beach_marine_data = {}
+    if beaches and BEACH_API_KEY_TO_USE:
+        beach_marine_data = asyncio.run(
+            fetch_beach_marine_data(beaches, BEACH_API_KEY_TO_USE)
+        )
+
     # 2. 3시간 간격 필터링
     filtered_data = filter_3hour_intervals(weather_data, days=days)
     filtered_beach_data = filter_3hour_intervals(beach_weather_data, days=days) if beach_weather_data else {}
 
-    # 3. 지역-해수욕장 매칭
+    # 3. 지역-해수욕장 매칭 (해양 데이터 포함)
     merged_data = get_merged_forecast_data(
         filtered_data,
         regions,
         filtered_beach_data if filtered_beach_data else None,
-        beaches if beaches else None
+        beaches if beaches else None,
+        beach_marine_data if beach_marine_data else None
     )
 
     # 4. 점수 계산
@@ -528,6 +734,7 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
 
     # 완료 메시지
     total_beaches = sum(len(d.get("beaches", [])) for d in merged_data.values())
+    beaches_with_marine = sum(1 for d in merged_data.values() for b in d.get("beaches", []) if b.get("marine"))
     print("\n" + "=" * 80)
     print("완료!")
     print("=" * 80)
@@ -536,6 +743,7 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
     print(f"  2. 점수 데이터: {scores_file}")
     print(f"\n처리 지역: {len(merged_data)}개")
     print(f"처리 해수욕장: {total_beaches}개")
+    print(f"해양 데이터 포함: {beaches_with_marine}개 해수욕장")
     print(f"완료 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
 
