@@ -13,6 +13,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import sqlite3
 import sys
 import time
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 # 프로젝트 경로 설정
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -68,72 +71,78 @@ def fetch_all_weather_data(regions: List[Dict], batch_size: int = 100) -> Dict[s
 
     print(f"  총 {len(valid_regions)}개 지역, {(len(valid_regions) + batch_size - 1) // batch_size}개 배치")
 
+    max_retries = 5
+
     for batch_start in range(0, len(valid_regions), batch_size):
         batch = valid_regions[batch_start:batch_start + batch_size]
         batch_num = batch_start // batch_size + 1
         total_batches = (len(valid_regions) + batch_size - 1) // batch_size
 
-        print(f"\r  배치 {batch_num}/{total_batches} ({len(batch)}개 좌표)...", end="", flush=True)
-
         lats = ",".join(str(r["lat"]) for r, _ in batch)
         lons = ",".join(str(r["lon"]) for r, _ in batch)
 
-        try:
-            params = {
-                "latitude": lats,
-                "longitude": lons,
-                "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,wind_speed_10m,visibility",
-                "timezone": "Asia/Seoul",
-                "forecast_days": 3,
-            }
+        for attempt in range(max_retries):
+            print(f"\r  배치 {batch_num}/{total_batches} ({len(batch)}개 좌표)...", end="", flush=True)
 
-            response = requests.get(OPENMETEO_URL, params=params, timeout=60)
-            response.raise_for_status()
-            data = response.json()
+            try:
+                params = {
+                    "latitude": lats,
+                    "longitude": lons,
+                    "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,cloud_cover,wind_speed_10m,visibility",
+                    "timezone": "Asia/Seoul",
+                    "forecast_days": 3,
+                }
 
-            # 단일/다중 응답 처리
-            if isinstance(data, list):
-                responses = data
-            else:
-                responses = [data]
+                response = requests.get(OPENMETEO_URL, params=params, timeout=60)
+                response.raise_for_status()
+                data = response.json()
 
-            # 각 지역별 결과 처리
-            for idx, (region, _) in enumerate(batch):
-                if idx >= len(responses):
-                    continue
+                # 단일/다중 응답 처리
+                if isinstance(data, list):
+                    responses = data
+                else:
+                    responses = [data]
 
-                location_data = responses[idx]
-                if "hourly" not in location_data:
-                    continue
+                # 각 지역별 결과 처리
+                for idx, (region, _) in enumerate(batch):
+                    if idx >= len(responses):
+                        continue
 
-                hourly = location_data["hourly"]
-                times = hourly.get("time", [])
+                    location_data = responses[idx]
+                    if "hourly" not in location_data:
+                        continue
 
-                hourly_data = []
-                for i in range(len(times)):
-                    hourly_data.append({
-                        "datetime": times[i],
-                        "temperature": hourly["temperature_2m"][i] if i < len(hourly["temperature_2m"]) else None,
-                        "humidity": hourly["relative_humidity_2m"][i] if i < len(hourly["relative_humidity_2m"]) else None,
-                        "rain_probability": hourly["precipitation_probability"][i] if i < len(hourly["precipitation_probability"]) else None,
-                        "cloud_cover": hourly["cloud_cover"][i] if i < len(hourly["cloud_cover"]) else None,
-                        "wind_speed": hourly["wind_speed_10m"][i] if i < len(hourly["wind_speed_10m"]) else None,
-                        "visibility": hourly.get("visibility", [None] * len(times))[i] if "visibility" in hourly else None,
-                    })
+                    hourly = location_data["hourly"]
+                    times = hourly.get("time", [])
 
-                results[region["code"]] = {"hourly": hourly_data}
+                    hourly_data = []
+                    for i in range(len(times)):
+                        hourly_data.append({
+                            "datetime": times[i],
+                            "temperature": hourly["temperature_2m"][i] if i < len(hourly["temperature_2m"]) else None,
+                            "humidity": hourly["relative_humidity_2m"][i] if i < len(hourly["relative_humidity_2m"]) else None,
+                            "rain_probability": hourly["precipitation_probability"][i] if i < len(hourly["precipitation_probability"]) else None,
+                            "cloud_cover": hourly["cloud_cover"][i] if i < len(hourly["cloud_cover"]) else None,
+                            "wind_speed": hourly["wind_speed_10m"][i] if i < len(hourly["wind_speed_10m"]) else None,
+                            "visibility": hourly.get("visibility", [None] * len(times))[i] if "visibility" in hourly else None,
+                        })
 
-            time.sleep(2)  # API Rate Limit 방지
+                    results[region["code"]] = {"hourly": hourly_data}
 
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                print(f"\n  Rate Limit 초과, 5초 대기 후 재시도...")
-                time.sleep(5)
-                # 재시도 로직 생략 (간결성 위해)
-            else:
+                time.sleep(3)  # API Rate Limit 방지
+                break  # 성공 시 재시도 루프 탈출
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    wait_time = 5 * (2 ** attempt)  # 5, 10, 20, 40, 80초
+                    print(f"\n  Rate Limit 초과, {wait_time}초 대기 후 재시도 ({attempt + 1}/{max_retries})...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"\n  배치 {batch_num} 오류: {e}")
+                    break  # 429 외 HTTP 오류는 재시도 안함
+            except Exception as e:
                 print(f"\n  배치 {batch_num} 오류: {e}")
-        except Exception as e:
-            print(f"\n  배치 {batch_num} 오류: {e}")
+                break  # 일반 오류는 재시도 안함
 
     print(f"\r  Bulk API 완료: {len(results)}/{len(valid_regions)} 성공              ")
     return results
@@ -498,7 +507,7 @@ async def fetch_beach_marine_data(
     수집 항목:
     - wave_height: 파고 (BeachInfo, 연중)
     - sea_temperature: 수온 (BeachInfo, 연중)
-    - tide_info: 조석 (data.go.kr API via KHOA collector, 연중)
+    - tide_info: 조석 (공공데이터포털 조석예보 고/저조 API, 연중)
     - sun_info: 일출일몰 (astronomy.py, 연중)
 
     Args:
@@ -577,17 +586,17 @@ async def fetch_beach_marine_data(
                                     "datetime": latest.get("datetime")
                                 }
 
-                        # 조석 정보 - data.go.kr API 사용 (연중 가능)
+                        # 조석 정보 - 공공데이터포털 조석예보(고, 저조) API (연중 가능)
                         if ocean_collector and beach.get("lat") and beach.get("lon"):
                             try:
                                 station, distance = find_nearest_tide_station(
                                     beach["lat"], beach["lon"]
                                 )
                                 if station and distance < 100:  # 100km 이내
-                                    tide_result = await ocean_collector._collect_tide_data(
+                                    tide_result = await ocean_collector.collect_tide(
                                         station["station_id"],
                                         base_date,
-                                        base_date + timedelta(days=1)
+                                        num_of_rows=8  # 당일+익일 (하루 4건)
                                     )
                                     if tide_result and tide_result.get("forecasts"):
                                         marine_data["tide_info"] = {
@@ -597,7 +606,7 @@ async def fetch_beach_marine_data(
                                             "forecasts": tide_result["forecasts"][:4]  # 당일 4개
                                         }
                             except Exception as e:
-                                pass  # 조석 API 실패 시 무시
+                                logger.warning(f"Tide API failed for beach {beach_code}: {e}")
 
                         # 일출일몰 - astronomy.py 사용 (연중 가능)
                         if beach.get("lat") and beach.get("lon"):
