@@ -30,6 +30,7 @@ orjson>=3.9.10
 
 # Astronomy (for moon phase, sunrise/sunset)
 astral>=3.2
+ephem>=4.1
 
 # Development
 pytest>=7.4.0

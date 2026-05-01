@@ -32,16 +32,16 @@ sys.path.insert(0, str(PROJECT_ROOT))
 RESULT_DIR = PROJECT_ROOT / "result"
 RESULT_DIR.mkdir(exist_ok=True)
 
-# 데이터베이스 경로
-DB_PATH = PROJECT_ROOT / "data" / "regions.db"
-
 # Open-Meteo API
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 # Import collectors
 from scripts.collectors.beach_info import BeachInfoCollector
 from scripts.collectors.khoa_ocean import KHOAOceanCollector
-from scripts.config.settings import BEACH_API_KEY, KMA_API_KEY
+from scripts.config.settings import BEACH_API_KEY, KMA_API_KEY, SQLITE_DB_PATH
+
+# 데이터베이스 경로 (settings 단일화)
+DB_PATH = SQLITE_DB_PATH
 from scripts.utils.astronomy import get_sunrise_sunset, get_moon_times, get_moon_phase
 from scripts.utils.ocean_mapping import find_nearest_tide_station, find_nearest_temp_station
 
