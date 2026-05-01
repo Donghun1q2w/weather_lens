@@ -4,6 +4,20 @@ Chronological log of project modifications.
 
 ---
 
+## 2026-05-01 18:34:14 — Reorganize `scripts/` by lifecycle
+
+[Detail](revisions/2026-05-01_183414_reorganize-scripts-by-lifecycle.md)
+
+- Moved 14 flat scripts into `scripts/{setup,ingest,ops,dev}/` (renames detected at 92–99% similarity).
+- Patched `PROJECT_ROOT` path depth in 13 scripts + `import_json_helper.py:7` `DB_PATH` for the new directory level.
+- `scheduler.py:75` redirected to `scripts/ops/collect_weather_report.py`.
+- Updated docstring usage hints inside moved scripts to reflect new paths.
+- Deleted unreferenced `warmup.py` shim (0 imports across the repo).
+- New subfolders use namespace packages (no `__init__.py`); existing `scripts/__init__.py` preserved.
+- Plan: [`docs/plans/2026-05-01_181800_reorganize-scripts-by-lifecycle.md`](plans/2026-05-01_181800_reorganize-scripts-by-lifecycle.md). Commits: `6c001f8`, `fdf42c4`, `92ec301`.
+
+---
+
 ## 2026-05-01 18:01:38 — Cleanup tests, caches, and untracked result outputs
 
 [Detail](revisions/2026-05-01_180138_cleanup-tests-and-result-outputs.md)
