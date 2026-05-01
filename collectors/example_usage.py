@@ -93,37 +93,27 @@ async def example_airkorea():
 
 
 async def example_khoa_ocean():
-    """Example: Collect KHOA ocean data"""
-    print("\n=== KHOA Ocean Collector ===")
+    """Example: Collect ocean data (tide from data.go.kr, wave/temp from KHOA)"""
+    print("\n=== Ocean Data Collector ===")
 
+    api_key = settings.BEACH_API_KEY or settings.KMA_API_KEY
     try:
-        async with KHOAOceanCollector(settings.KHOA_API_KEY) as collector:
+        async with KHOAOceanCollector(api_key) as collector:
+            # 조석예보(고, 저조) - 공공데이터포털 API
+            tide_result = await collector.collect_tide("DT_0018")  # 군산
+            print(f"✓ Tide station: {tide_result['station_name']}")
+            for fc in tide_result["forecasts"][:4]:
+                print(f"  {fc['datetime']} {fc['type']} {fc['height']}cm")
+
+            # Full collection (tide + wave + temp)
             result = await collector.collect(
                 region_code="4671025000",  # 강원 강릉시 주문진읍
-                ocean_station_id="DT_0001"  # Example station ID
+                ocean_station_id="DT_0001"
             )
-
             print(f"✓ Collected ocean data for station {result['ocean_station_id']}")
 
-            # Tide data
-            if result['data'].get('tide'):
-                tide = result['data']['tide']
-                print(f"  Tide station: {tide['station_name']}")
-                print(f"  Forecasts: {len(tide['forecasts'])} entries")
-
-            # Wave data
-            if result['data'].get('wave'):
-                wave = result['data']['wave']
-                print(f"  Wave height: {wave['significant_wave_height']} m")
-                print(f"  Wave period: {wave['wave_period']} sec")
-
-            # Water temperature
-            if result['data'].get('water_temp'):
-                temp = result['data']['water_temp']
-                print(f"  Surface temp: {temp['surface_temp']}°C")
-
     except CollectorError as e:
-        print(f"✗ KHOA collection failed: {e}")
+        print(f"✗ Ocean collection failed: {e}")
 
 
 async def main():
@@ -139,8 +129,8 @@ async def main():
     if not settings.AIRKOREA_API_KEY:
         print("⚠ Warning: AIRKOREA_API_KEY not set. AirKorea example will fail.")
 
-    if not settings.KHOA_API_KEY:
-        print("⚠ Warning: KHOA_API_KEY not set. KHOA example will fail.")
+    if not (settings.BEACH_API_KEY or settings.KMA_API_KEY):
+        print("⚠ Warning: BEACH_API_KEY/KMA_API_KEY not set. Ocean example will fail.")
 
     # Run examples
     await example_kma_forecast()

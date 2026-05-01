@@ -295,56 +295,146 @@ def get_milky_way_visibility(date: datetime = None, lat: float = None, lon: floa
 
 def calculate_dark_window(twilight: Dict, moon_times: Dict, moon_phase: Dict) -> Dict:
     """
-    무월광 촬영 가능 시간대 계산
+    무월광 촬영 가능 시간대 계산 (time-interval subtraction)
 
-    조건:
-    1. 천문박명 이후 (완전한 어둠)
-    2. 달이 져있거나 조도 25% 미만
+    dark_period = [evening_twilight, morning_twilight]
+    if moon is bright (illumination >= 25%):
+        moon_up_period = [moonrise, moonset] clipped to dark_period
+        dark_window = dark_period - moon_up_period
+
+    Handles all cases: moon up all night, moon down all night,
+    moonrise during dark, moonset during dark, both during dark.
     """
     evening = twilight.get("evening_datetime")
     morning = twilight.get("morning_datetime")
     moonrise = moon_times.get("moonrise_datetime")
     moonset = moon_times.get("moonset_datetime")
     is_dark_moon = moon_phase.get("is_dark_moon", False)
+    illumination = moon_phase.get("illumination", 0)
 
     if not evening or not morning:
         return {"available": False, "reason": "박명 시간 계산 불가"}
 
-    # 무월광이면 전체 어둠 시간이 촬영 가능
+    total_dark_hours = twilight.get("dark_hours", 0)
+
+    # 무월광이면 (조도 25% 미만) 전체 어둠 시간이 촬영 가능
     if is_dark_moon:
         return {
             "available": True,
             "start": evening.strftime("%H:%M"),
             "end": morning.strftime("%H:%M"),
-            "duration_hours": twilight.get("dark_hours", 0),
+            "duration_hours": total_dark_hours,
             "condition": "무월광 (전체 어둠 시간 촬영 가능)",
         }
 
-    # 달이 밝으면 달이 져있는 시간대만
+    # 달이 밝은 경우: 달이 떠있는 시간을 dark_period에서 빼기
+    # moonrise/moonset이 없으면 달이 항상 떠있거나 항상 져있는 경우
+    if moonrise is None and moonset is None:
+        # moon_up_hours로 판단
+        moon_up_hours = moon_times.get("moon_up_hours")
+        if moon_up_hours is None:
+            # 계산 불가 - 밝은 달이므로 보수적으로 불가 판정
+            return {
+                "available": False,
+                "reason": f"월광 영향 (조도 {illumination}%)",
+            }
+        # AlwaysUp/NeverUp은 get_moon_times에서 None 반환
+        return {
+            "available": False,
+            "reason": f"월광 영향 (조도 {illumination}%, 월출몰 계산 불가)",
+        }
+
+    # 달이 떠있는 구간 계산 (dark period 내에서)
+    # moonrise < moonset: 달이 moonrise에 뜨고 moonset에 짐
+    # moonrise > moonset: 달이 이미 떠있다가 moonset에 지고, moonrise에 다시 뜸
+
+    dark_segments = []  # (start, end) tuples of moonless dark periods
+
     if moonrise and moonset:
-        # 달이 자정 전에 지는 경우
-        if moonset and moonset.hour < 12:  # 자정 이후 월몰
-            dark_start = max(evening, moonset) if moonset > evening else evening
-            return {
-                "available": True,
-                "start": moonset.strftime("%H:%M"),
-                "end": morning.strftime("%H:%M"),
-                "duration_hours": round((morning - moonset).total_seconds() / 3600, 1) if moonset < morning else 0,
-                "condition": f"월몰({moonset.strftime('%H:%M')}) 이후 촬영 가능",
-            }
-        # 달이 늦게 뜨는 경우
-        elif moonrise and moonrise.hour > 20:  # 밤늦게 월출
-            return {
-                "available": True,
-                "start": evening.strftime("%H:%M"),
-                "end": moonrise.strftime("%H:%M"),
-                "duration_hours": round((moonrise - evening).total_seconds() / 3600, 1) if moonrise > evening else 0,
-                "condition": f"월출({moonrise.strftime('%H:%M')}) 전까지 촬영 가능",
-            }
+        if moonrise < moonset:
+            # 달이 moonrise~moonset 동안 떠있음
+            # dark window = [evening, moonrise] + [moonset, morning]
+            moon_up_start = max(moonrise, evening)
+            moon_up_end = min(moonset, morning)
+
+            if moon_up_start >= morning or moon_up_end <= evening:
+                # 달이 떠있는 시간이 dark period 밖
+                dark_segments.append((evening, morning))
+            else:
+                # dark period 앞부분 (evening ~ moon_up_start)
+                if moon_up_start > evening:
+                    dark_segments.append((evening, moon_up_start))
+                # dark period 뒷부분 (moon_up_end ~ morning)
+                if moon_up_end < morning:
+                    dark_segments.append((moon_up_end, morning))
+        else:
+            # moonrise > moonset: 달이 이미 떠있다가 moonset에 지고 moonrise에 다시 뜸
+            # moon UP = [evening, moonset] + [moonrise, morning]
+            # dark window = [moonset, moonrise] clipped to dark period
+            clip_start = max(moonset, evening)
+            clip_end = min(moonrise, morning)
+            if clip_start < clip_end:
+                dark_segments.append((clip_start, clip_end))
+
+    elif moonrise and not moonset:
+        # 달이 moonrise에 뜬 후 dark period 내에서 지지 않음
+        # dark window = [evening, moonrise]
+        clip_rise = max(moonrise, evening)
+        if clip_rise > evening and clip_rise <= morning:
+            dark_segments.append((evening, clip_rise))
+        elif moonrise > morning:
+            # 월출이 dark period 이후 → 전체가 dark
+            dark_segments.append((evening, morning))
+
+    elif moonset and not moonrise:
+        # 달이 이미 떠있다가 moonset에 짐, 이후 뜨지 않음
+        # dark window = [moonset, morning]
+        clip_set = min(moonset, morning)
+        if clip_set < morning and clip_set >= evening:
+            dark_segments.append((clip_set, morning))
+        elif moonset < evening:
+            # 월몰이 dark period 이전 → 전체가 dark
+            dark_segments.append((evening, morning))
+
+    if not dark_segments:
+        return {
+            "available": False,
+            "reason": f"월광 영향 (조도 {illumination}%)",
+        }
+
+    # 가장 긴 dark segment를 주 창으로 사용
+    best_seg = max(dark_segments, key=lambda s: (s[1] - s[0]).total_seconds())
+    duration = round((best_seg[1] - best_seg[0]).total_seconds() / 3600, 1)
+
+    # 전체 dark 시간 합산
+    total_duration = round(sum(
+        (seg[1] - seg[0]).total_seconds() / 3600 for seg in dark_segments
+    ), 1)
+
+    if duration < 0.5:
+        return {
+            "available": False,
+            "reason": f"무월광 시간 부족 ({duration}시간, 조도 {illumination}%)",
+        }
+
+    # 조건 문자열 생성
+    if len(dark_segments) == 1:
+        condition = f"{best_seg[0].strftime('%H:%M')}~{best_seg[1].strftime('%H:%M')} 촬영 가능"
+    else:
+        parts = [f"{s[0].strftime('%H:%M')}~{s[1].strftime('%H:%M')}" for s in dark_segments]
+        condition = f"촬영 가능 구간: {', '.join(parts)}"
 
     return {
-        "available": False,
-        "reason": f"월광 영향 (조도 {moon_phase.get('illumination', 0)}%)",
+        "available": True,
+        "start": best_seg[0].strftime("%H:%M"),
+        "end": best_seg[1].strftime("%H:%M"),
+        "duration_hours": total_duration,
+        "segments": [
+            {"start": s[0].strftime("%H:%M"), "end": s[1].strftime("%H:%M"),
+             "hours": round((s[1] - s[0]).total_seconds() / 3600, 1)}
+            for s in dark_segments
+        ],
+        "condition": condition,
     }
 
 

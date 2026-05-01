@@ -1,6 +1,19 @@
 """Base Scorer for PhotoSpot Korea - Abstract Base Class for Theme Scoring"""
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Optional
+
+
+# Field mapping: canonical name -> list of possible keys in data
+# Handles both flat keys (from Open-Meteo) and nested keys (from KMA merged format)
+FIELD_MAP = {
+    "cloud_cover": ["cloud_cover", "cloud.avg"],
+    "rain_probability": ["rain_probability", "rain_prob.avg"],
+    "temperature": ["temperature", "temp.avg"],
+    "wind_speed": ["wind_speed", "wind_speed.avg"],
+    "humidity": ["humidity", "humidity.avg"],
+    "visibility": ["visibility"],  # Always in meters from Open-Meteo, convert to km
+}
 
 
 class BaseScorer(ABC):
@@ -9,11 +22,15 @@ class BaseScorer(ABC):
     theme_id: int
     theme_name: str
 
+    # Each scorer declares its relevant time windows (hours in KST)
+    relevant_hours: list = []  # e.g., [6, 9] for sunrise
+    time_selection: str = "closest"  # "closest", "range", "worst_case"
+
     def __init__(self, theme_id: int, theme_name: str):
         """Initialize base scorer with theme information
 
         Args:
-            theme_id: Unique identifier for the theme (1-8)
+            theme_id: Unique identifier for the theme (1-16)
             theme_name: Display name of the theme
         """
         self.theme_id = theme_id
@@ -25,44 +42,158 @@ class BaseScorer(ABC):
         weather_data: dict,
         ocean_data: Optional[dict] = None
     ) -> float:
-        """Calculate score for this theme based on weather and ocean data
+        """Legacy per-timeslot scoring (kept for backward compat with api routes)"""
+        pass
+
+    @abstractmethod
+    async def calculate_daily_score(
+        self,
+        day_weather: list,
+        date: str,
+        location_meta: dict,
+        marine_data: Optional[dict] = None,
+        astronomy: Optional[dict] = None,
+    ) -> dict:
+        """Calculate daily score for this theme
 
         Args:
-            weather_data: Dictionary containing weather forecast data
-                - datetime: ISO format timestamp
-                - temp: Temperature data with kma/openmeteo/avg
-                - cloud: Cloud cover data (0-100%)
-                - rain_prob: Precipitation probability (0-100%)
-                - wind_speed: Wind speed (m/s)
-                - pm25: PM2.5 concentration
-                - humidity: Relative humidity (0-100%)
-                - visibility: Visibility (km)
-                - sunrise: Sunrise time (HH:MM)
-                - sunset: Sunset time (HH:MM)
-            ocean_data: Optional dictionary containing ocean data
-                - sea_temp: Sea surface temperature (Celsius)
-                - wave_height: Significant wave height (m)
-                - tide_time: High/low tide times
-                - storm_warning: Boolean flag for storm warnings
+            day_weather: All 8 timeslots for one day (list of dicts with datetime, cloud_cover, etc.)
+            date: Date string "YYYY-MM-DD"
+            location_meta: {lat, lon, is_east_coast, is_west_coast, is_coastal, elevation}
+            marine_data: {wave_height, sea_temperature, tide_info, sun_info, moon_info} or None
+            astronomy: Pre-computed from astronomy.py for this date+location or None
 
         Returns:
-            float: Score between 0 and 100
+            dict: {score: float, factors: dict, time_used: str}
         """
         pass
 
+    # =========================================================================
+    # Time-selection helpers
+    # =========================================================================
+
+    def _find_closest_timeslot(self, day_weather: list, target_hour: int,
+                                target_minute: int = 0) -> Optional[dict]:
+        """Find the timeslot closest to target_hour:target_minute"""
+        if not day_weather:
+            return None
+
+        target_minutes = target_hour * 60 + target_minute
+        best = None
+        best_diff = float('inf')
+
+        for slot in day_weather:
+            dt_str = slot.get("datetime", "")
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                slot_minutes = dt.hour * 60 + dt.minute
+                diff = abs(slot_minutes - target_minutes)
+                # Handle wrap-around midnight
+                diff = min(diff, 1440 - diff)
+                if diff < best_diff:
+                    best_diff = diff
+                    best = slot
+            except (ValueError, AttributeError):
+                continue
+
+        return best
+
+    def _get_timeslots_in_range(self, day_weather: list,
+                                 start_hour: int, end_hour: int) -> list:
+        """Get timeslots within [start_hour, end_hour] range.
+        Handles overnight ranges where end_hour < start_hour (e.g., 21-03).
+        """
+        if not day_weather:
+            return []
+
+        result = []
+        for slot in day_weather:
+            dt_str = slot.get("datetime", "")
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                h = dt.hour
+                if start_hour <= end_hour:
+                    if start_hour <= h <= end_hour:
+                        result.append(slot)
+                else:
+                    # Overnight range (e.g., 21-03)
+                    if h >= start_hour or h <= end_hour:
+                        result.append(slot)
+            except (ValueError, AttributeError):
+                continue
+
+        return result
+
+    def _worst_case_field(self, timeslots: list, field: str,
+                           mode: str = "max") -> Optional[float]:
+        """Get worst-case value for a field across timeslots.
+        mode="max" for fields where higher is worse (cloud cover).
+        mode="min" for fields where lower is worse (visibility).
+        """
+        if not timeslots:
+            return None
+
+        values = []
+        for slot in timeslots:
+            val = self._get_weather_value(slot, field)
+            if val is not None:
+                values.append(val)
+
+        if not values:
+            return None
+
+        return max(values) if mode == "max" else min(values)
+
+    def _avg_field(self, timeslots: list, field: str) -> Optional[float]:
+        """Get average value for a field across timeslots."""
+        if not timeslots:
+            return None
+
+        values = []
+        for slot in timeslots:
+            val = self._get_weather_value(slot, field)
+            if val is not None:
+                values.append(val)
+
+        if not values:
+            return None
+
+        return sum(values) / len(values)
+
+    def _get_weather_value(self, data: dict, field: str,
+                            default=None) -> Optional[float]:
+        """Get weather value, handling BOTH flat and nested key formats.
+        Also handles unit conversion (visibility m -> km).
+        """
+        if not data:
+            return default
+
+        # Check canonical field map first
+        candidates = FIELD_MAP.get(field, [field])
+
+        for key in candidates:
+            val = self._safe_get(data, key)
+            if val is not None:
+                # Visibility: convert meters to km if value > 1000
+                # (Open-Meteo gives meters, old format assumed km)
+                if field == "visibility" and val > 1000:
+                    val = val / 1000.0
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    continue
+
+        return default
+
+    # =========================================================================
+    # Score calculation helpers (unchanged)
+    # =========================================================================
+
     def _normalize_score(self, value: float, min_val: float, max_val: float,
                         reverse: bool = False) -> float:
-        """Normalize a value to 0-100 scale
-
-        Args:
-            value: The value to normalize
-            min_val: Minimum expected value
-            max_val: Maximum expected value
-            reverse: If True, higher input values result in lower scores
-
-        Returns:
-            float: Normalized score (0-100)
-        """
+        """Normalize a value to 0-100 scale"""
+        if min_val == max_val:
+            return 100.0 if value == min_val else (0.0 if not reverse else 100.0)
         if value < min_val:
             return 0.0 if not reverse else 100.0
         if value > max_val:
@@ -75,32 +206,18 @@ class BaseScorer(ABC):
         return normalized * 100.0
 
     def _calculate_range_score(self, value: float, min_val: float, max_val: float) -> float:
-        """Calculate score for values within an optimal range
-
-        Values within the range get higher scores, outside get lower.
-
-        Args:
-            value: The value to score
-            min_val: Minimum optimal value
-            max_val: Maximum optimal value
-
-        Returns:
-            float: Score (0-100)
-        """
+        """Calculate score for values within an optimal range"""
         if min_val <= value <= max_val:
-            # Value is in optimal range
             range_center = (min_val + max_val) / 2
             range_width = (max_val - min_val) / 2
 
             if range_width == 0:
                 return 100.0
 
-            # Score decreases as distance from center increases
             distance_from_center = abs(value - range_center)
             score = 100.0 - (distance_from_center / range_width) * 20.0
             return max(80.0, score)
         else:
-            # Value is outside optimal range
             if value < min_val:
                 deviation = min_val - value
                 penalty = min(deviation * 10, 80)
@@ -111,16 +228,7 @@ class BaseScorer(ABC):
             return max(0.0, 100.0 - penalty)
 
     def _safe_get(self, data: dict, key: str, default=None):
-        """Safely get value from nested dictionary
-
-        Args:
-            data: Dictionary to extract from
-            key: Key to look for
-            default: Default value if key not found
-
-        Returns:
-            Value from dictionary or default
-        """
+        """Safely get value from nested dictionary"""
         if not data:
             return default
 

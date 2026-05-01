@@ -1,11 +1,11 @@
 """
 Ocean Observation Stations Data
 
-KHOA (Korea Hydrographic and Oceanographic Agency) observation station definitions.
-These stations provide tide, wave, and water temperature data for coastal regions.
+조석예보(고, 저조) API 예보지점 정의.
+공공데이터포털 API (data.go.kr) 기준 station code 사용.
 
 Station Types:
-- tide: Tide observation stations (DT_*)
+- tide: Tide observation stations (DT_*, SO_*, IE_*)
 - wave: Wave observation stations (TW_*)
 - buoy: Ocean buoy stations (IE_*)
 """
@@ -28,11 +28,11 @@ class OceanStation(TypedDict):
 
 
 # Ocean observation stations data
-# Based on confirmed KHOA API stations and major coastal locations
+# Station codes based on 공공데이터포털 조석예보(고, 저조) API guide
 OCEAN_STATIONS: List[OceanStation] = [
     # ===== 제주도 (Jeju Island) - 12D10000 =====
     {
-        "station_id": "DT_0063",
+        "station_id": "DT_0004",
         "station_name": "제주",
         "station_type": "tide",
         "lat": 33.5271,
@@ -43,7 +43,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12D10000",
     },
     {
-        "station_id": "DT_0028",
+        "station_id": "DT_0022",
         "station_name": "성산포",
         "station_type": "tide",
         "lat": 33.4747,
@@ -54,7 +54,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12D10000",
     },
     {
-        "station_id": "DT_0029",
+        "station_id": "DT_0010",
         "station_name": "서귀포",
         "station_type": "tide",
         "lat": 33.2403,
@@ -65,7 +65,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12D10000",
     },
     {
-        "station_id": "DT_0062",
+        "station_id": "DT_0023",
         "station_name": "모슬포",
         "station_type": "tide",
         "lat": 33.2142,
@@ -76,7 +76,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12D10000",
     },
     {
-        "station_id": "DT_0060",
+        "station_id": "DT_0021",
         "station_name": "추자도",
         "station_type": "tide",
         "lat": 33.9614,
@@ -100,7 +100,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12A10000",
     },
     {
-        "station_id": "DT_0088",
+        "station_id": "DT_0002",
         "station_name": "평택",
         "station_type": "tide",
         "lat": 36.9667,
@@ -111,7 +111,18 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12A10000",
     },
     {
-        "station_id": "DT_0006",
+        "station_id": "DT_0008",
+        "station_name": "안산",
+        "station_type": "tide",
+        "lat": 37.3250,
+        "lon": 126.7650,
+        "provides_tide": 1,
+        "provides_wave": 0,
+        "provides_temp": 1,
+        "marine_zone_code": "12A10000",
+    },
+    {
+        "station_id": "DT_0067",
         "station_name": "안흥",
         "station_type": "tide",
         "lat": 36.6742,
@@ -124,18 +135,18 @@ OCEAN_STATIONS: List[OceanStation] = [
 
     # ===== 서해중부 (West Sea Central) - 12A20000 =====
     {
-        "station_id": "DT_0081",
-        "station_name": "대천",
+        "station_id": "DT_0050",
+        "station_name": "태안",
         "station_type": "tide",
-        "lat": 36.3500,
-        "lon": 126.4833,
+        "lat": 36.5794,
+        "lon": 126.1308,
         "provides_tide": 1,
         "provides_wave": 0,
         "provides_temp": 1,
         "marine_zone_code": "12A20000",
     },
     {
-        "station_id": "DT_0007",
+        "station_id": "DT_0025",
         "station_name": "보령",
         "station_type": "tide",
         "lat": 36.4067,
@@ -145,10 +156,21 @@ OCEAN_STATIONS: List[OceanStation] = [
         "provides_temp": 1,
         "marine_zone_code": "12A20000",
     },
+    {
+        "station_id": "DT_0017",
+        "station_name": "대산",
+        "station_type": "tide",
+        "lat": 37.0083,
+        "lon": 126.3517,
+        "provides_tide": 1,
+        "provides_wave": 0,
+        "provides_temp": 1,
+        "marine_zone_code": "12A20000",
+    },
 
     # ===== 서해남부 (West Sea South) - 12A30000 =====
     {
-        "station_id": "DT_0023",
+        "station_id": "DT_0018",
         "station_name": "군산",
         "station_type": "tide",
         "lat": 35.9753,
@@ -159,7 +181,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12A30000",
     },
     {
-        "station_id": "DT_0057",
+        "station_id": "DT_0068",
         "station_name": "위도",
         "station_type": "tide",
         "lat": 35.6181,
@@ -170,7 +192,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12A30000",
     },
     {
-        "station_id": "DT_0026",
+        "station_id": "DT_0007",
         "station_name": "목포",
         "station_type": "tide",
         "lat": 34.7797,
@@ -181,7 +203,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12A30000",
     },
     {
-        "station_id": "DT_0044",
+        "station_id": "DT_0035",
         "station_name": "흑산도",
         "station_type": "tide",
         "lat": 34.6842,
@@ -191,10 +213,21 @@ OCEAN_STATIONS: List[OceanStation] = [
         "provides_temp": 1,
         "marine_zone_code": "12A30000",
     },
+    {
+        "station_id": "DT_0003",
+        "station_name": "영광",
+        "station_type": "tide",
+        "lat": 35.2769,
+        "lon": 126.4203,
+        "provides_tide": 1,
+        "provides_wave": 0,
+        "provides_temp": 1,
+        "marine_zone_code": "12A30000",
+    },
 
     # ===== 남해서부 (South Sea West) - 12B10000 =====
     {
-        "station_id": "DT_0012",
+        "station_id": "DT_0027",
         "station_name": "완도",
         "station_type": "tide",
         "lat": 34.3153,
@@ -205,7 +238,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12B10000",
     },
     {
-        "station_id": "DT_0042",
+        "station_id": "DT_0016",
         "station_name": "여수",
         "station_type": "tide",
         "lat": 34.7478,
@@ -216,7 +249,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12B10000",
     },
     {
-        "station_id": "DT_0025",
+        "station_id": "DT_0031",
         "station_name": "거문도",
         "station_type": "tide",
         "lat": 34.0281,
@@ -226,10 +259,21 @@ OCEAN_STATIONS: List[OceanStation] = [
         "provides_temp": 1,
         "marine_zone_code": "12B10000",
     },
+    {
+        "station_id": "DT_0049",
+        "station_name": "광양",
+        "station_type": "tide",
+        "lat": 34.9117,
+        "lon": 127.6978,
+        "provides_tide": 1,
+        "provides_wave": 0,
+        "provides_temp": 1,
+        "marine_zone_code": "12B10000",
+    },
 
     # ===== 남해동부 (South Sea East) - 12B20000 =====
     {
-        "station_id": "DT_0013",
+        "station_id": "DT_0014",
         "station_name": "통영",
         "station_type": "tide",
         "lat": 34.8267,
@@ -240,7 +284,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12B20000",
     },
     {
-        "station_id": "DT_0014",
+        "station_id": "DT_0029",
         "station_name": "거제도",
         "station_type": "tide",
         "lat": 34.8008,
@@ -251,7 +295,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12B20000",
     },
     {
-        "station_id": "DT_0091",
+        "station_id": "DT_0063",
         "station_name": "가덕도",
         "station_type": "tide",
         "lat": 35.0242,
@@ -261,10 +305,32 @@ OCEAN_STATIONS: List[OceanStation] = [
         "provides_temp": 1,
         "marine_zone_code": "12B20000",
     },
+    {
+        "station_id": "DT_0061",
+        "station_name": "삼천포",
+        "station_type": "tide",
+        "lat": 34.9275,
+        "lon": 128.0758,
+        "provides_tide": 1,
+        "provides_wave": 0,
+        "provides_temp": 1,
+        "marine_zone_code": "12B20000",
+    },
+    {
+        "station_id": "DT_0054",
+        "station_name": "진해",
+        "station_type": "tide",
+        "lat": 35.1494,
+        "lon": 128.6936,
+        "provides_tide": 1,
+        "provides_wave": 0,
+        "provides_temp": 1,
+        "marine_zone_code": "12B20000",
+    },
 
     # ===== 동해남부 (East Sea South) - 12C10000 =====
     {
-        "station_id": "DT_0016",
+        "station_id": "DT_0005",
         "station_name": "부산",
         "station_type": "tide",
         "lat": 35.0961,
@@ -275,7 +341,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12C10000",
     },
     {
-        "station_id": "DT_0017",
+        "station_id": "DT_0020",
         "station_name": "울산",
         "station_type": "tide",
         "lat": 35.5011,
@@ -285,10 +351,8 @@ OCEAN_STATIONS: List[OceanStation] = [
         "provides_temp": 1,
         "marine_zone_code": "12C10000",
     },
-
-    # ===== 동해중부 (East Sea Central) - 12C20000 =====
     {
-        "station_id": "DT_0018",
+        "station_id": "DT_0091",
         "station_name": "포항",
         "station_type": "tide",
         "lat": 36.0489,
@@ -296,10 +360,12 @@ OCEAN_STATIONS: List[OceanStation] = [
         "provides_tide": 1,
         "provides_wave": 0,
         "provides_temp": 1,
-        "marine_zone_code": "12C20000",
+        "marine_zone_code": "12C10000",
     },
+
+    # ===== 동해중부 (East Sea Central) - 12C20000 =====
     {
-        "station_id": "DT_0019",
+        "station_id": "DT_0011",
         "station_name": "후포",
         "station_type": "tide",
         "lat": 36.6778,
@@ -310,7 +376,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12C20000",
     },
     {
-        "station_id": "DT_0020",
+        "station_id": "DT_0013",
         "station_name": "울릉도",
         "station_type": "tide",
         "lat": 37.4914,
@@ -323,7 +389,7 @@ OCEAN_STATIONS: List[OceanStation] = [
 
     # ===== 동해북부 (East Sea North) - 12C30000 =====
     {
-        "station_id": "DT_0085",
+        "station_id": "DT_0006",
         "station_name": "묵호",
         "station_type": "tide",
         "lat": 37.5508,
@@ -334,7 +400,7 @@ OCEAN_STATIONS: List[OceanStation] = [
         "marine_zone_code": "12C30000",
     },
     {
-        "station_id": "DT_0032",
+        "station_id": "DT_0012",
         "station_name": "속초",
         "station_type": "tide",
         "lat": 38.2072,
@@ -344,9 +410,19 @@ OCEAN_STATIONS: List[OceanStation] = [
         "provides_temp": 1,
         "marine_zone_code": "12C30000",
     },
+    {
+        "station_id": "DT_0057",
+        "station_name": "동해항",
+        "station_type": "tide",
+        "lat": 37.4917,
+        "lon": 129.1167,
+        "provides_tide": 1,
+        "provides_wave": 0,
+        "provides_temp": 1,
+        "marine_zone_code": "12C30000",
+    },
 
     # ===== Wave Observation Stations (TW_*) =====
-    # Major wave observation stations covering key coastal areas
     {
         "station_id": "TW_0069",
         "station_name": "제주 외해",
@@ -382,7 +458,6 @@ OCEAN_STATIONS: List[OceanStation] = [
     },
 
     # ===== Buoy Stations (IE_*) =====
-    # Ocean buoy stations providing comprehensive data
     {
         "station_id": "IE_0062",
         "station_name": "제주 해양기상부이",
@@ -409,28 +484,12 @@ OCEAN_STATIONS: List[OceanStation] = [
 
 
 def get_stations_by_zone(zone_code: str) -> List[OceanStation]:
-    """
-    Get all ocean stations in a specific marine zone.
-
-    Args:
-        zone_code: Marine zone code (e.g., "12D10000")
-
-    Returns:
-        List of ocean stations in the zone
-    """
+    """Get all ocean stations in a specific marine zone."""
     return [s for s in OCEAN_STATIONS if s["marine_zone_code"] == zone_code]
 
 
 def get_station_by_id(station_id: str) -> OceanStation | None:
-    """
-    Get ocean station by ID.
-
-    Args:
-        station_id: Station ID (e.g., "DT_0063")
-
-    Returns:
-        Ocean station data or None if not found
-    """
+    """Get ocean station by ID."""
     for station in OCEAN_STATIONS:
         if station["station_id"] == station_id:
             return station
@@ -438,15 +497,7 @@ def get_station_by_id(station_id: str) -> OceanStation | None:
 
 
 def get_stations_by_type(station_type: str) -> List[OceanStation]:
-    """
-    Get all ocean stations of a specific type.
-
-    Args:
-        station_type: Station type ('tide', 'wave', 'buoy')
-
-    Returns:
-        List of ocean stations of the specified type
-    """
+    """Get all ocean stations of a specific type."""
     return [s for s in OCEAN_STATIONS if s["station_type"] == station_type]
 
 

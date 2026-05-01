@@ -1,4 +1,9 @@
-"""KHOA (국립해양조사원 바다누리) Ocean Data Collector"""
+"""공공데이터포털 조석/해양 데이터 Collector
+
+조석예보(고, 저조) API: https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService
+파고정보 API: http://www.khoa.go.kr/api/oceangrid/obsWave/search.do
+해수온 API: http://www.khoa.go.kr/api/oceangrid/obsTemp/search.do
+"""
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import logging
@@ -6,32 +11,41 @@ from .base_collector import BaseCollector, CollectorError
 
 logger = logging.getLogger(__name__)
 
+# 고/저조 구분 코드
+TIDE_TYPE_MAP = {
+    "1": "고조",   # 1st high tide
+    "2": "저조",   # 1st low tide
+    "3": "고조",   # 2nd high tide
+    "4": "저조",   # 2nd low tide
+}
+
 
 class KHOAOceanCollector(BaseCollector):
     """
-    바다누리 해양 데이터 API Collector
+    해양 데이터 Collector
 
     APIs:
-    - 조석예보: 만조/간조 시각, 조위
-    - 파고정보: 유의파고, 파주기
-    - 해수온 관측: 표층 수온
+    - 조석예보(고, 저조): 만조/간조 시각, 조위 (공공데이터포털)
+    - 파고정보: 유의파고, 파주기 (KHOA)
+    - 해수온 관측: 표층 수온 (KHOA)
     """
 
-    # Base URLs for different ocean data services
-    TIDE_URL = "https://apis.data.go.kr/1192136/tideFcstTime/GetTideFcstTimeApiService"
-    WAVE_URL = "http://www.khoa.go.kr/api/oceangrid/obsWave/search.do"
-    TEMP_URL = "http://www.khoa.go.kr/api/oceangrid/obsTemp/search.do"
+    # 조석예보(고, 저조) - 공공데이터포털
+    TIDE_URL = "https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService"
+    # 파고/수온 - KHOA 바다누리
+    WAVE_URL = "https://www.khoa.go.kr/api/oceangrid/obsWave/search.do"
+    TEMP_URL = "https://www.khoa.go.kr/api/oceangrid/obsTemp/search.do"
 
     def __init__(self, api_key: str):
         """
         Initialize Ocean Collector
 
         Args:
-            api_key: 공공데이터포털 API 인증키 (KMA_API_KEY or BEACH_API_KEY)
+            api_key: 공공데이터포털 API 인증키
         """
         super().__init__(api_key)
         if not api_key:
-            raise ValueError("API key is required (use KMA_API_KEY or BEACH_API_KEY)")
+            raise ValueError("API key is required")
 
     async def collect(
         self,
@@ -43,7 +57,7 @@ class KHOAOceanCollector(BaseCollector):
         collect_temp: bool = True
     ) -> Dict[str, Any]:
         """
-        Collect ocean data from KHOA
+        Collect ocean data
 
         Args:
             region_code: 읍면동 코드
@@ -55,14 +69,10 @@ class KHOAOceanCollector(BaseCollector):
 
         Returns:
             Dictionary with ocean data
-
-        Raises:
-            CollectorError: If collection fails
         """
         if not ocean_station_id:
             raise CollectorError(f"Ocean station ID is required for region {region_code}")
 
-        # Default to D-day ~ D+2
         if date_range is None:
             start_date = datetime.now()
             end_date = start_date + timedelta(days=2)
@@ -70,7 +80,7 @@ class KHOAOceanCollector(BaseCollector):
             start_date, end_date = date_range
 
         result = {
-            "source": "khoa",
+            "source": "data.go.kr",
             "region_code": region_code,
             "ocean_station_id": ocean_station_id,
             "collected_at": datetime.now().isoformat(),
@@ -78,70 +88,70 @@ class KHOAOceanCollector(BaseCollector):
         }
 
         try:
-            # Collect tide forecast data (조석예보)
             if collect_tide:
                 try:
-                    tide_data = await self._collect_tide_data(ocean_station_id, start_date, end_date)
+                    tide_data = await self.collect_tide(ocean_station_id, start_date)
                     result["data"]["tide"] = tide_data
                 except Exception as e:
-                    logger.warning(f"Failed to collect tide data: {str(e)}")
+                    logger.warning(f"Failed to collect tide data: {e}")
                     result["data"]["tide"] = None
 
-            # Collect wave data (파고정보)
             if collect_wave:
                 try:
                     wave_data = await self._collect_wave_data(ocean_station_id)
                     result["data"]["wave"] = wave_data
                 except Exception as e:
-                    logger.warning(f"Failed to collect wave data: {str(e)}")
+                    logger.warning(f"Failed to collect wave data: {e}")
                     result["data"]["wave"] = None
 
-            # Collect water temperature data (해수온)
             if collect_temp:
                 try:
                     temp_data = await self._collect_temp_data(ocean_station_id)
                     result["data"]["water_temp"] = temp_data
                 except Exception as e:
-                    logger.warning(f"Failed to collect water temp data: {str(e)}")
+                    logger.warning(f"Failed to collect water temp data: {e}")
                     result["data"]["water_temp"] = None
 
             return result
 
         except Exception as e:
-            logger.error(f"Failed to collect KHOA data for {region_code}: {str(e)}")
-            raise CollectorError(f"KHOA collection failed: {str(e)}") from e
+            logger.error(f"Failed to collect ocean data for {region_code}: {e}")
+            raise CollectorError(f"Ocean collection failed: {e}") from e
 
-    async def _collect_tide_data(
+    async def collect_tide(
         self,
         station_id: str,
-        start_date: datetime,
-        end_date: datetime
+        req_date: Optional[datetime] = None,
+        num_of_rows: int = 20
     ) -> Dict[str, Any]:
         """
-        Collect tide forecast data (조석예보) from data.go.kr
+        조석예보(고, 저조) 데이터 수집
+
+        공공데이터포털 API를 통해 고조/저조 시각과 조위를 직접 조회.
+        하루 4건 (고조 2회, 저조 2회)의 정확한 데이터 제공.
 
         Args:
-            station_id: Ocean station ID (e.g., "DT_0018")
-            start_date: Start date
-            end_date: End date
+            station_id: 예보지점 코드 (e.g., "DT_0018")
+            req_date: 요청 일자 (기본: 오늘)
+            num_of_rows: 조회 건수 (기본: 20, 약 5일치)
 
         Returns:
-            Dictionary with tide data including high/low tide events
+            Dictionary with station info and tide forecasts
         """
+        if req_date is None:
+            req_date = datetime.now()
+
         params = {
             "serviceKey": self.api_key,
             "obsCode": station_id,
-            "reqDate": start_date.strftime("%Y%m%d"),
-            "min": 60,  # 1-hour intervals
+            "reqDate": req_date.strftime("%Y%m%d"),
             "type": "json",
-            "numOfRows": 300,  # Max to get full day
+            "numOfRows": num_of_rows,
             "pageNo": 1
         }
 
         response = await self._make_request(self.TIDE_URL, params)
 
-        # Parse response - data.go.kr format
-        # Response structure: {"header": {...}, "body": {...}}
         header = response.get("header", {})
         body = response.get("body", {})
 
@@ -156,80 +166,32 @@ class KHOAOceanCollector(BaseCollector):
         if not items:
             return {"station_name": None, "forecasts": []}
 
-        # Handle single item case (API returns dict instead of list)
         if isinstance(items, dict):
             items = [items]
 
-        # Extract station info
         station_name = items[0].get("obsvtrNm") if items else None
 
-        # Parse time-series to find high/low tides
-        parsed_tides = self._extract_high_low_tides(items)
+        forecasts = []
+        for item in items:
+            extr_se = str(item.get("extrSe", ""))
+            tide_type = TIDE_TYPE_MAP.get(extr_se)
+            if not tide_type:
+                continue
+
+            forecasts.append({
+                "datetime": item.get("predcDt"),
+                "type": tide_type,
+                "height": float(item.get("predcTdlvVl", 0)),
+            })
 
         return {
             "station_name": station_name,
-            "forecasts": parsed_tides,
-            "time_series": [
-                {
-                    "datetime": item.get("predcDt"),
-                    "height": float(item.get("tdlvHgt", 0))
-                }
-                for item in items
-            ]
+            "forecasts": forecasts,
         }
-
-    def _extract_high_low_tides(self, items: List[Dict]) -> List[Dict]:
-        """
-        Extract high/low tide events from time-series data
-
-        Looks for local maxima (high tide) and local minima (low tide)
-
-        Note: Using min=60 (1-hour intervals) means tide times are approximate
-        (±30 minutes from actual peak/trough).
-
-        Args:
-            items: List of time-series data points with predcDt and tdlvHgt
-
-        Returns:
-            List of high/low tide events with datetime, type, and height
-        """
-        if len(items) < 3:
-            return []
-
-        tides = []
-        heights = [(item.get("predcDt"), float(item.get("tdlvHgt", 0))) for item in items]
-
-        for i in range(1, len(heights) - 1):
-            prev_h = heights[i - 1][1]
-            curr_h = heights[i][1]
-            next_h = heights[i + 1][1]
-
-            # Local maximum = high tide (고조)
-            if curr_h > prev_h and curr_h > next_h:
-                tides.append({
-                    "datetime": heights[i][0],
-                    "type": "고조",
-                    "height": curr_h
-                })
-            # Local minimum = low tide (저조)
-            elif curr_h < prev_h and curr_h < next_h:
-                tides.append({
-                    "datetime": heights[i][0],
-                    "type": "저조",
-                    "height": curr_h
-                })
-
-        return tides
 
     async def _collect_wave_data(self, station_id: str) -> Dict[str, Any]:
         """
         Collect wave observation data (파고정보)
-
-        Args:
-            station_id: Ocean station ID
-
-        Returns:
-            Dictionary with wave data
         """
         params = {
             "ServiceKey": self.api_key,
@@ -239,15 +201,11 @@ class KHOAOceanCollector(BaseCollector):
 
         response = await self._make_request(self.WAVE_URL, params)
 
-        # Parse wave data
         result = response.get("result", {})
-
         if result.get("code") != 200:
             raise CollectorError(f"KHOA wave API error: {result.get('message')}")
 
         data = result.get("data", {})
-
-        # Get latest observation
         if isinstance(data, list) and len(data) > 0:
             latest = data[0]
         elif isinstance(data, dict):
@@ -258,20 +216,14 @@ class KHOAOceanCollector(BaseCollector):
         return {
             "station_name": latest.get("obs_post_name"),
             "observed_at": latest.get("record_time"),
-            "significant_wave_height": self._parse_float(latest.get("wave_height")),  # 유의파고 (m)
-            "wave_period": self._parse_float(latest.get("wave_per")),  # 파주기 (초)
-            "max_wave_height": self._parse_float(latest.get("wave_height_max"))  # 최대파고 (m)
+            "significant_wave_height": self._parse_float(latest.get("wave_height")),
+            "wave_period": self._parse_float(latest.get("wave_per")),
+            "max_wave_height": self._parse_float(latest.get("wave_height_max"))
         }
 
     async def _collect_temp_data(self, station_id: str) -> Dict[str, Any]:
         """
         Collect water temperature observation data (해수온)
-
-        Args:
-            station_id: Ocean station ID
-
-        Returns:
-            Dictionary with water temperature data
         """
         params = {
             "ServiceKey": self.api_key,
@@ -281,15 +233,11 @@ class KHOAOceanCollector(BaseCollector):
 
         response = await self._make_request(self.TEMP_URL, params)
 
-        # Parse temperature data
         result = response.get("result", {})
-
         if result.get("code") != 200:
             raise CollectorError(f"KHOA temp API error: {result.get('message')}")
 
         data = result.get("data", {})
-
-        # Get latest observation
         if isinstance(data, list) and len(data) > 0:
             latest = data[0]
         elif isinstance(data, dict):
@@ -300,24 +248,15 @@ class KHOAOceanCollector(BaseCollector):
         return {
             "station_name": latest.get("obs_post_name"),
             "observed_at": latest.get("record_time"),
-            "surface_temp": self._parse_float(latest.get("water_temp")),  # 표층 수온 (℃)
-            "depth_1m_temp": self._parse_float(latest.get("water_temp_1")),  # 1m 수온
-            "depth_5m_temp": self._parse_float(latest.get("water_temp_5"))  # 5m 수온
+            "surface_temp": self._parse_float(latest.get("water_temp")),
+            "depth_1m_temp": self._parse_float(latest.get("water_temp_1")),
+            "depth_5m_temp": self._parse_float(latest.get("water_temp_5"))
         }
 
     def _parse_float(self, value: Any) -> Optional[float]:
-        """
-        Safely parse float value
-
-        Args:
-            value: Value to parse
-
-        Returns:
-            Float value or None
-        """
+        """Safely parse float value"""
         if value is None or value == "" or value == "-":
             return None
-
         try:
             return float(value)
         except (ValueError, TypeError):

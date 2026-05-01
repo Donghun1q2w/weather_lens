@@ -29,10 +29,12 @@
       "uncertainty_note": "조건 충족 시에도 불확실성 높음, 실제 발생률 ~30%"
     },
     "milky_way": {
-      "moon_phase": {"target": "new_moon", "range_days": 3, "weight": 0.35},
-      "cloud_cover": {"max": 20, "weight": 0.3},
-      "light_pollution": {"max": 3, "weight": 0.25},
-      "visibility": {"min": 15, "weight": 0.1}
+      "dark_window": {"min_hours": 2, "saturation_hours": 8, "weight": 0.35},
+      "cloud_cover": {"max": 80, "weight": 0.25, "aggregation": "worst_case"},
+      "galactic_altitude": {"weight": 0.15},
+      "light_pollution": {"default_bortle": 5, "weight": 0.15},
+      "visibility": {"min_km": 5, "max_km": 20, "weight": 0.10},
+      "wave_height_bonus": {"max_bonus": 10, "note": "coastal only, fishing boat absence"}
     },
     "bioluminescence": {
       "sea_temp": {"min": 18, "max": 25, "weight": 0.3},
@@ -46,6 +48,27 @@
       "no_storm_warning": {"weight": 0.25},
       "tide_timing": {"hours_from_low_tide": 2, "weight": 0.25},
       "wind_speed": {"max": 8, "weight": 0.15}
+    },
+    "sea_long_exposure_east": {
+      "wave_height": {"min": 2, "max": 4, "weight": 0.45},
+      "wind_speed": {"max": 15, "weight": 0.25},
+      "no_storm_warning": {"weight": 0.20},
+      "rain_prob": {"max": 30, "weight": 0.10},
+      "note": "동해 전용 - 파고 기반, 높은 파도일수록 높은 점수"
+    },
+    "sea_long_exposure_west": {
+      "tidal_range": {"min": 300, "max": 650, "weight": 0.45},
+      "wind_speed": {"max": 10, "weight": 0.20},
+      "no_storm_warning": {"weight": 0.20},
+      "rain_prob": {"max": 20, "weight": 0.15},
+      "note": "서해 전용 - 조석차 기반, 대조기일수록 높은 점수"
+    },
+    "sea_long_exposure_south": {
+      "tidal_range": {"min": 100, "max": 300, "weight": 0.45},
+      "wind_speed": {"max": 10, "weight": 0.20},
+      "no_storm_warning": {"weight": 0.20},
+      "rain_prob": {"max": 20, "weight": 0.15},
+      "note": "남해 전용 - 조석차 기반, 대조기일수록 높은 점수"
     },
     "sea_of_clouds": {
       "low_humidity": {"min": 85, "weight": 0.3},
@@ -111,6 +134,7 @@
       "note": "보름달 전후 2일, 일출/일몰 시간대 최적"
     }
   },
-  "version": "2.0",
-  "last_updated": "2026-01-30"
+  "version": "3.0",
+  "last_updated": "2026-02-08",
+  "scoring_mode": "daily"
 }

@@ -42,7 +42,7 @@ OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 from collectors.beach_info import BeachInfoCollector
 from collectors.khoa_ocean import KHOAOceanCollector
 from config.settings import BEACH_API_KEY, KMA_API_KEY
-from utils.astronomy import get_sunrise_sunset
+from utils.astronomy import get_sunrise_sunset, get_moon_times, get_moon_phase
 from utils.ocean_mapping import find_nearest_tide_station, find_nearest_temp_station
 
 # API key fallback: BEACH_API_KEY가 없으면 KMA_API_KEY 사용
@@ -245,6 +245,12 @@ def get_merged_forecast_data(
                 "name": region.get("name", "알 수 없음"),
                 "weather": hourly_data
             },
+            "lat": region.get("lat", 0),
+            "lon": region.get("lon", 0),
+            "is_east_coast": region.get("is_east_coast", False),
+            "is_west_coast": region.get("is_west_coast", False),
+            "is_coastal": region.get("is_coastal", False),
+            "elevation": region.get("elevation", 0),
             "beaches": []
         }
 
@@ -286,85 +292,21 @@ def get_merged_forecast_data(
 # STEP 4: 점수 계산 (Placeholder)
 # ============================================================================
 
-def batch_calculate_scores(merged_data: Dict) -> Dict:
+def batch_calculate_scores_daily(merged_data: Dict) -> Dict:
     """
-    테마별 점수 계산
+    테마별 일별 점수 계산 (16개 테마, 일별 집계)
+
+    실제 scorers 모듈의 batch_calculate_daily_scores를 사용하여
+    날짜별 점수를 계산합니다.
 
     Args:
         merged_data: 병합된 예보 데이터 (region + beaches 구조)
 
     Returns:
-        점수가 포함된 데이터
+        일별 점수 데이터
     """
-    print("\n[4/5] 테마별 점수 계산 중...")
-
-    scores_data = {}
-
-    for region_code, data in merged_data.items():
-        # 지역 날씨에 대한 점수 계산
-        region_scores = []
-        region_weather = data.get("region", {}).get("weather", [])
-
-        for hour_data in region_weather:
-            # 간단한 점수 계산 (예시)
-            cloud = hour_data.get("cloud_cover", 50) or 50
-            rain_prob = hour_data.get("rain_probability", 50) or 50
-            wind = hour_data.get("wind_speed", 5) or 5
-
-            # 테마별 점수 (간단한 알고리즘)
-            scores = {
-                "sunrise": max(0, 100 - abs(cloud - 45) - rain_prob),
-                "sunset": max(0, 100 - abs(cloud - 55) - rain_prob),
-                "milky_way": max(0, 100 - cloud * 2 - rain_prob),
-                "star_trail": max(0, 100 - cloud * 2 - wind * 5),
-            }
-
-            region_scores.append({
-                "datetime": hour_data["datetime"],
-                "weather": hour_data,
-                "scores": scores,
-            })
-
-        # 해수욕장별 점수 계산
-        beaches_scores = []
-        for beach in data.get("beaches", []):
-            beach_hourly_scores = []
-
-            for hour_data in beach.get("weather", []):
-                cloud = hour_data.get("cloud_cover", 50) or 50
-                rain_prob = hour_data.get("rain_probability", 50) or 50
-                wind = hour_data.get("wind_speed", 5) or 5
-
-                scores = {
-                    "sunrise": max(0, 100 - abs(cloud - 45) - rain_prob),
-                    "sunset": max(0, 100 - abs(cloud - 55) - rain_prob),
-                    "milky_way": max(0, 100 - cloud * 2 - rain_prob),
-                    "star_trail": max(0, 100 - cloud * 2 - wind * 5),
-                }
-
-                beach_hourly_scores.append({
-                    "datetime": hour_data["datetime"],
-                    "weather": hour_data,
-                    "scores": scores,
-                })
-
-            beaches_scores.append({
-                "beach_num": beach["beach_num"],
-                "name": beach["name"],
-                "scores": beach_hourly_scores
-            })
-
-        scores_data[region_code] = {
-            "region": {
-                "name": data.get("region", {}).get("name", "알 수 없음"),
-                "scores": region_scores
-            },
-            "beaches": beaches_scores
-        }
-
-    total_beaches = sum(len(d["beaches"]) for d in scores_data.values())
-    print(f"  점수 계산 완료: {len(scores_data)}개 지역, {total_beaches}개 해수욕장")
-    return scores_data
+    from scorers.batch_scorer import batch_calculate_daily_scores
+    return asyncio.run(batch_calculate_daily_scores(merged_data))
 
 
 # ============================================================================
@@ -560,7 +502,8 @@ async def fetch_beach_marine_data(
                         "wave_height": None,
                         "sea_temperature": None,
                         "tide_info": None,
-                        "sun_info": None
+                        "sun_info": None,
+                        "moon_info": None
                     }
 
                     try:
@@ -625,12 +568,34 @@ async def fetch_beach_marine_data(
                             except Exception:
                                 pass  # 계산 실패 시 무시
 
+                        # 월출/월몰 + 월령/조도 - astronomy.py 사용 (연중 가능)
+                        if beach.get("lat") and beach.get("lon"):
+                            try:
+                                moon_times_result = get_moon_times(
+                                    base_date,
+                                    beach["lat"],
+                                    beach["lon"]
+                                )
+                                moon_phase_result = get_moon_phase(base_date)
+                                marine_data["moon_info"] = {
+                                    "source": "astronomy",
+                                    "moonrise": moon_times_result.get("moonrise"),
+                                    "moonset": moon_times_result.get("moonset"),
+                                    "moon_age": moon_phase_result["moon_age"],
+                                    "illumination": moon_phase_result["illumination"],
+                                    "phase_name": moon_phase_result["phase_name"],
+                                    "is_dark_moon": moon_phase_result["is_dark_moon"]
+                                }
+                            except Exception as e:
+                                logger.warning(f"Moon info failed for beach {beach_code}: {e}")
+
                         # 어떤 데이터라도 있으면 성공으로 간주
                         if any([
                             marine_data["wave_height"],
                             marine_data["sea_temperature"],
                             marine_data["tide_info"],
-                            marine_data["sun_info"]
+                            marine_data["sun_info"],
+                            marine_data["moon_info"]
                         ]):
                             success_count += 1
 
@@ -733,8 +698,8 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
         beach_marine_data if beach_marine_data else None
     )
 
-    # 4. 점수 계산
-    scores_data = batch_calculate_scores(merged_data)
+    # 4. 점수 계산 (일별 16테마)
+    scores_data = batch_calculate_scores_daily(merged_data)
 
     # 5. 파일 출력
     print("\n[5/5] 파일 저장 중...")
