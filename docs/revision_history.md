@@ -4,6 +4,24 @@ Chronological log of project modifications.
 
 ---
 
+## 2026-05-01 19:46:53 — Consolidate all packages into `scripts/`
+
+[Detail](revisions/2026-05-01_194653_consolidate-all-packages-into-scripts.md)
+
+- 12개 도메인 패키지(`api`, `collectors`, `config`, `curators`, `data`, `feedbacks`, `messengers`, `models`, `processors`, `recommenders`, `scorers`, `utils`) + 진입점 2개(`main.py`, `scheduler.py`)를 모두 `scripts/` 하위로 이동 (renames 84–100% similarity).
+- 절대 import 66건에 `scripts.` 접두어 일괄 적용 (42 파일).
+- `scripts/scheduler.py`: subprocess → import + `asyncio.to_thread` + `asyncio.wait_for(timeout=1800)` 패턴.
+- `render.yaml`: `uvicorn scripts.main:fastapi_app`로 startCommand 갱신.
+- `pyproject.toml`: `[tool.setuptools.packages.find]` 블록 추가.
+- `scripts/__init__.py` docstring 보강.
+- `collectors/example_usage.py` 삭제 (dead code).
+- `docs/{DATABASE_CLEANUP_REPORT, KMA_API_INTEGRATION, COASTAL_CLASSIFICATION_COMPLETE, API_SOURCE_MIGRATION}.md` 상단에 stale notice 추가.
+- `.gitignore` 평탄 `data/...` 패턴 → `scripts/data/...`로 갱신 + 의도치 않게 추적된 런타임 DB·캐시 untrack (`b9bfb44`).
+- BASE_DIR 깊이 갱신은 자원 동시 이동으로 결과적 정합 — plan 4단계는 시행하지 않음 (정정 사항).
+- Plan: [`docs/plans/2026-05-01_190730_consolidate-all-packages-into-scripts.md`](plans/2026-05-01_190730_consolidate-all-packages-into-scripts.md). Commits: `cf94a38`, `dcf7823`, `b9bfb44`.
+
+---
+
 ## 2026-05-01 18:34:14 — Reorganize `scripts/` by lifecycle
 
 [Detail](revisions/2026-05-01_183414_reorganize-scripts-by-lifecycle.md)

@@ -1,7 +1,9 @@
 # 모든 Python 패키지를 `scripts/` 하위로 통합
 
 - **작성일**: 2026-05-01 19:07:30
-- **상태**: 제안됨 (Proposed)
+- **상태**: 완료 (Completed) — 2026-05-01 19:50, commits `cf94a38` / `dcf7823` / `b9bfb44`
+- **결정 정정**: `BASE_DIR` 깊이 갱신은 결과적으로 **불필요**했음. 이유: `BASE_DIR`이 가리키는 자원(`scripts/data/`, `scripts/config/weights.json`)이 본 reorg로 함께 이동했기 때문. `parent.parent`를 그대로 두니 `BASE_DIR`이 새 위치(`scripts/`)를 가리켜 자연스러운 정합 달성. plan 4단계는 시행하지 않음.
+- **추가 부수 commit**: `b9bfb44` — `.gitignore` 패턴을 평탄 경로(`data/...`)에서 새 경로(`scripts/data/...`)로 갱신하고, 그 사이 의도치 않게 추적된 `regions.db` / `ocean_mapping.db` / 캐시 JSON 1개를 untrack.
 - **작성자**: Claude Code (사용자 요청, /plan-context)
 - **선행 계획**: [`2026-05-01_181800_reorganize-scripts-by-lifecycle.md`](2026-05-01_181800_reorganize-scripts-by-lifecycle.md) (Completed) — 본 계획은 그 plan의 "out of scope" 결정을 명시적으로 뒤집음
 
