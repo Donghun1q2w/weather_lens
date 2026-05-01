@@ -4,6 +4,16 @@ Chronological log of project plans (newest first).
 
 ---
 
+## 2026-05-01 20:46:20 — Dead code cleanup + consolidation
+
+[Detail](plans/2026-05-01_204620_dead-code-cleanup-and-consolidation.md)
+
+**Status**: Completed (2026-05-01 20:55, commit `91c4a33`)
+
+`/dh-dev` 1-a explore 결과 식별된 통합/간결화 후보 5개 카테고리 처리: (A) Dead code 제거 — `models/{region,weather,ocean,feedback}.py` 전체, `collectors/airkorea.py`, `feedbacks/automation.py`. (B) 미사용 processor 함수 — `weather_integrator.py`, `region_beach_merger.py` 전체. (C) `__init__.py` re-export 정리 — `processors/__init__.py` 13+ internal-only 항목, `feedbacks/__init__.py`, `collectors/__init__.py`. (D) `ops/collect_weather_report.py` `fetch_openmeteo_bulk`의 동일 블록 2회를 `_process_batch_response()` 헬퍼로 추출. (E) KMA collector 공통 dict 이관은 보류 (별도 plan). 외부 진입점 동작 동일 유지가 acceptance 핵심.
+
+---
+
 ## 2026-05-01 19:07:30 — Consolidate all packages into `scripts/`
 
 [Detail](plans/2026-05-01_190730_consolidate-all-packages-into-scripts.md)
