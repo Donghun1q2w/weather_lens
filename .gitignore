@@ -39,13 +39,13 @@ env/
 .settings/
 
 # Data files (keep structure, ignore content)
-data/cache/
-data/regions.db
-data/ocean_mapping.db
+scripts/data/cache/
+scripts/data/regions.db
+scripts/data/ocean_mapping.db
 *.db-journal
 
 # Boundaries (large files, download separately)
-data/boundaries/*.geojson
+scripts/data/boundaries/*.geojson
 
 # Logs
 *.log
