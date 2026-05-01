@@ -4,6 +4,16 @@ Chronological log of project plans (newest first).
 
 ---
 
+## 2026-05-01 21:35:29 — KHOA / Beach 파고(wave) 데이터 미수집 디버깅
+
+[Detail](plans/2026-05-01_213529_khoa-wave-data-debug.md)
+
+**Status**: Proposed
+
+전수 테스트(`f6220fc`) 결과 18개 테마 중 "바다 장노출(동/서/남해)" 3종이 7,232 표본 전체에서 0점, factors.reason="no wave data"로 산출됨. ThemeScorer는 정상이지만 입력 marine_data의 `wave_height`가 비어 있음. fetch_beach_marine_data ↔ get_merged_forecast_data 흐름의 root cause 후보 5개(silent except / key mismatch / API auth / response shape / async failure) 진단 후 수정. 단계 1은 `scripts/dev/check_marine_fetch.py` 격리 호출로 1~3개 beach 응답 raw 검증, 단계 2는 root cause에 따라 분기 수정. 수용 기준: 전수 재실행 시 "해양 데이터 포함: N>0개", 바다 장노출 비0 region ≥ 1.
+
+---
+
 ## 2026-05-01 20:46:20 — Dead code cleanup + consolidation
 
 [Detail](plans/2026-05-01_204620_dead-code-cleanup-and-consolidation.md)
