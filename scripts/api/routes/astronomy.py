@@ -201,7 +201,7 @@ async def get_dark_window(
     times = get_moon_times(target_date, lat, lon)
     twilight = get_astronomical_twilight(target_date, lat, lon)
 
-    from utils.astronomy import calculate_dark_window
+    from scripts.utils.astronomy import calculate_dark_window
     dark_window = calculate_dark_window(twilight, times, phase)
 
     return {

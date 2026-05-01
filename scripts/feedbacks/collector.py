@@ -60,7 +60,7 @@ class FeedbackCollector:
             db_path: Path to SQLite database. If None, uses default from config.
         """
         if db_path is None:
-            from config.settings import DATA_DIR
+            from scripts.config.settings import DATA_DIR
             db_path = DATA_DIR / "feedbacks.db"
 
         self.db_path = db_path

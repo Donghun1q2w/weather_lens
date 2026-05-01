@@ -305,7 +305,7 @@ def batch_calculate_scores_daily(merged_data: Dict) -> Dict:
     Returns:
         일별 점수 데이터
     """
-    from scorers.batch_scorer import batch_calculate_daily_scores
+    from scripts.scorers.batch_scorer import batch_calculate_daily_scores
     return asyncio.run(batch_calculate_daily_scores(merged_data))
 
 

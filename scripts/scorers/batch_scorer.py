@@ -154,7 +154,7 @@ def _pre_compute_astronomy(date_str: str, lat: float, lon: float) -> Optional[di
     core_altitude, season_quality, sunrise, sunset
     """
     try:
-        from utils.astronomy import (
+        from scripts.utils.astronomy import (
             get_moon_phase, get_moon_times, get_astronomical_twilight,
             calculate_dark_window, get_milky_way_visibility,
             get_sunrise_sunset

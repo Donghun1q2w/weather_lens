@@ -30,7 +30,7 @@ class FeedbackAnalyzer:
         self.collector = FeedbackCollector(feedback_db_path)
 
         if weights_path is None:
-            from config.settings import BASE_DIR
+            from scripts.config.settings import BASE_DIR
             weights_path = BASE_DIR / "config" / "weights.json"
 
         self.weights_path = weights_path
@@ -182,7 +182,7 @@ class FeedbackAnalyzer:
         Returns:
             dict: Suggested weight adjustments or None if insufficient data
         """
-        from config.settings import THEME_IDS
+        from scripts.config.settings import THEME_IDS
 
         theme_name = THEME_IDS.get(theme_id, f"theme_{theme_id}")
 
@@ -294,7 +294,7 @@ class FeedbackAnalyzer:
         Returns:
             dict: Weekly report with accuracy metrics for all themes
         """
-        from config.settings import THEME_IDS
+        from scripts.config.settings import THEME_IDS
 
         report = {
             'report_date': datetime.now().isoformat(),
@@ -346,7 +346,7 @@ class FeedbackAnalyzer:
         report = self.generate_weekly_report()
 
         if output_path is None:
-            from config.settings import DATA_DIR
+            from scripts.config.settings import DATA_DIR
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             output_path = DATA_DIR / f"weekly_report_{timestamp}.json"
 

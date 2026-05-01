@@ -411,7 +411,7 @@ def show_stats():
         ORDER BY pst.theme_id
     """)
 
-    from config.settings import THEME_IDS
+    from scripts.config.settings import THEME_IDS
     print("\n테마별 출사포인트:")
     for row in cursor.fetchall():
         theme_name = THEME_IDS.get(row[0], f"테마{row[0]}")
