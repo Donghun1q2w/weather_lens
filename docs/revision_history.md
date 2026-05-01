@@ -4,6 +4,23 @@ Chronological log of project modifications.
 
 ---
 
+## 2026-05-01 20:08:34 — /simplify 리뷰 반영 (scripts/ 통합 후 정리)
+
+[Detail](revisions/2026-05-01_200834_simplify-consolidation.md)
+
+- scheduler ↔ internal 라우트 통합: 3개 inner async 함수(`run_collection`, `run_scoring`, `run_notification`)를 `internal.py` module-level로 추출 → `collect_weather`, `calculate_scores`, `send_notification`. scheduler 4개 cron job 모두 동일 비즈니스 함수를 직접 await로 호출. `call_internal_api` / `INTERNAL_API_BASE` / `httpx` 제거.
+- `scripts/config/logging.py` 신규 — 공용 `configure_logging()` + `LOG_FORMAT`. `main.py` / `scheduler.py` 중복 `logging.basicConfig` 제거.
+- `pyproject.toml`: `[tool.setuptools.packages.find]`에 `namespaces = true` 추가 (lifecycle/data namespace 패키지 5개 빌드 포함).
+- `scripts/ops/collect_weather_report.py`: `RESULT_DIR.mkdir`을 import 시점 → `run_collection()` 진입 시점으로 이동.
+- `scripts/api/routes/internal.py`: `INTERNAL_API_KEY` 중복 정의 제거 → settings에서 import.
+- `scripts/__init__.py`: 13줄 → 1줄로 축소. CLAUDE.md에 Architecture 섹션 추가하여 단일 source of truth.
+- `docs/{DATABASE_CLEANUP_REPORT, KMA_API_INTEGRATION, COASTAL_CLASSIFICATION_COMPLETE, API_SOURCE_MIGRATION}.md` stale notice에서 하드코딩 날짜 `(2026-05-01)` 제거.
+- `scripts/main.py`: `"main:fastapi_app"` → `"scripts.main:fastapi_app"` 잔재 fix.
+- `scripts/scheduler.py`: WHAT 주석 3건 제거.
+- Plan: [`docs/plans/2026-05-01_190730_consolidate-all-packages-into-scripts.md`](plans/2026-05-01_190730_consolidate-all-packages-into-scripts.md) (사후 정리). Commits: `bd67e43`, `452ab70`.
+
+---
+
 ## 2026-05-01 19:46:53 — Consolidate all packages into `scripts/`
 
 [Detail](revisions/2026-05-01_194653_consolidate-all-packages-into-scripts.md)
