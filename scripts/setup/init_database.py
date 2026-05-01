@@ -5,14 +5,14 @@
 실제 지역 데이터는 별도로 삽입해야 합니다.
 
 사용법:
-    python scripts/init_database.py
+    python scripts/setup/init_database.py
 """
 import sqlite3
 from pathlib import Path
 import sys
 
 # 프로젝트 루트를 Python 경로에 추가
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import DATA_DIR, SQLITE_DB_PATH, OCEAN_MAPPING_DB_PATH
@@ -151,7 +151,7 @@ def main():
     print(f"    전체 3,500개 지역 데이터는 별도로 삽입해야 합니다.")
     print(f"\n다음 단계:")
     print(f"  1. 행정구역 데이터 다운로드 (data.go.kr)")
-    print(f"  2. scripts/import_regions.py 실행하여 전체 데이터 삽입")
+    print(f"  2. scripts/ingest/import_regions.py 실행하여 전체 데이터 삽입")
 
 
 if __name__ == "__main__":

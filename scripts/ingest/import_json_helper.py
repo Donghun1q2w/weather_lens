@@ -4,7 +4,7 @@ import sqlite3
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "data" / "regions.db"
+DB_PATH = Path(__file__).parent.parent.parent / "data" / "regions.db"
 
 # 시도 축약형 매핑
 SIDO_VARIATIONS = {

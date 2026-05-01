@@ -8,14 +8,14 @@
 4. displayName/mcidName 기반으로 태그 자동 추론
 
 사용법:
-    python scripts/import_naver_spots.py
+    python scripts/ingest/import_naver_spots.py
 """
 import json
 import sqlite3
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import SQLITE_DB_PATH

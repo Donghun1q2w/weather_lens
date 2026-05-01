@@ -6,13 +6,13 @@
 - user_collection_spots: 컬렉션에 포함된 출사지 정보
 
 사용법:
-    python scripts/setup_user_collections.py
+    python scripts/setup/setup_user_collections.py
 """
 import sqlite3
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import SQLITE_DB_PATH
@@ -92,7 +92,7 @@ def main():
     print("✅ 설정 완료!")
     print("=" * 60)
     print("\n다음 단계:")
-    print("  - scripts/import_naver_spots.py 실행하여 네이버 지도 데이터 임포트")
+    print("  - scripts/ingest/import_naver_spots.py 실행하여 네이버 지도 데이터 임포트")
 
 
 if __name__ == "__main__":

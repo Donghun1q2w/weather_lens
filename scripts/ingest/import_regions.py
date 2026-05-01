@@ -4,7 +4,7 @@
 행정안전부 행정구역코드 데이터를 다운로드하고 regions.db에 삽입합니다.
 
 사용법:
-    python scripts/import_regions.py
+    python scripts/ingest/import_regions.py
 
 데이터 출처:
     - 행정안전부 주소정보 누리집 (https://www.juso.go.kr)
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 import math
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import SQLITE_DB_PATH, DATA_DIR

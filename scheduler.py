@@ -72,7 +72,7 @@ async def generate_weather_report():
         import sys
         from pathlib import Path
 
-        script_path = Path(__file__).parent / "scripts" / "collect_weather_report.py"
+        script_path = Path(__file__).parent / "scripts" / "ops" / "collect_weather_report.py"
         result = subprocess.run(
             [sys.executable, str(script_path), "--full"],
             capture_output=True,

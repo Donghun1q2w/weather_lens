@@ -4,14 +4,14 @@
 환경변수와 데이터베이스가 올바르게 설정되었는지 확인합니다.
 
 사용법:
-    python scripts/check_config.py
+    python scripts/dev/check_config.py
 """
 import os
 import sys
 from pathlib import Path
 
 # 프로젝트 루트를 Python 경로에 추가
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # .env 파일 로드
@@ -76,7 +76,7 @@ def main():
         db_ok = True
     else:
         print(f"  ❌ regions.db: 파일 없음")
-        print(f"     → python scripts/init_database.py 실행 필요")
+        print(f"     → python scripts/setup/init_database.py 실행 필요")
         db_ok = False
 
     if OCEAN_MAPPING_DB_PATH.exists():
@@ -100,7 +100,7 @@ def main():
         if not required_ok:
             print("  → .env 파일에 KMA_API_KEY를 설정하세요")
         if not db_ok:
-            print("  → python scripts/init_database.py를 실행하세요")
+            print("  → python scripts/setup/init_database.py를 실행하세요")
     print("=" * 50)
 
 

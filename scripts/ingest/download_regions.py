@@ -2,7 +2,7 @@
 공공데이터포털에서 행정구역 데이터 다운로드 및 변환
 
 사용법:
-    python scripts/download_regions.py
+    python scripts/ingest/download_regions.py
 
 이 스크립트는 대한민국 행정구역(읍면동) 데이터를 다운로드하고
 regions.db에 맞는 형식으로 변환합니다.
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 import urllib.request
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import SQLITE_DB_PATH, DATA_DIR

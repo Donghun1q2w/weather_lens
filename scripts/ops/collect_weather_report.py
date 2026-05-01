@@ -17,7 +17,7 @@ import sys
 import time
 
 # 프로젝트 루트 경로 추가
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import SQLITE_DB_PATH, THEME_IDS, KMA_API_KEY, BEACH_API_KEY

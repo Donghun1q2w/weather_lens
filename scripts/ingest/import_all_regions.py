@@ -5,7 +5,7 @@
 전국 약 3,500개 읍면동 데이터를 임포트합니다.
 
 사용법:
-    python scripts/import_all_regions.py
+    python scripts/ingest/import_all_regions.py
 """
 import sqlite3
 import sys
@@ -16,7 +16,7 @@ from typing import List, Dict, Tuple
 import urllib.request
 import ssl
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import SQLITE_DB_PATH

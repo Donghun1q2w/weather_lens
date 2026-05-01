@@ -5,14 +5,14 @@ Creates marine zone tables and populates mappings between
 coastal regions and KMA marine forecast zones (해상예보구역).
 
 Usage:
-    python scripts/setup_marine_zones.py
+    python scripts/setup/setup_marine_zones.py
 """
 import sqlite3
 import sys
 from pathlib import Path
 
 # Add project root to Python path
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import SQLITE_DB_PATH
@@ -26,7 +26,7 @@ def create_marine_zone_tables():
 
     if not SQLITE_DB_PATH.exists():
         print(f"❌ 데이터베이스가 존재하지 않습니다: {SQLITE_DB_PATH}")
-        print("먼저 scripts/init_database.py를 실행하세요.")
+        print("먼저 scripts/setup/init_database.py를 실행하세요.")
         return False
 
     conn = sqlite3.connect(SQLITE_DB_PATH)
