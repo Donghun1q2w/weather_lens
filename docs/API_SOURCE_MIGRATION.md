@@ -1,6 +1,6 @@
 # 기상청 API 소스 마이그레이션 가이드
 
-> ⚠️ **Stale notice (2026-05-01)**: 본 문서가 인용하는 일부 `scripts/<flat>.py` 경로는 이미 삭제·통합된 옛 위치입니다. 현재 코드는 `docs/revision_history.md`와 `scripts/` 트리를 참고하세요.
+> ⚠️ **Stale notice**: 본 문서가 인용하는 일부 `scripts/<flat>.py` 경로는 이미 삭제·통합된 옛 위치입니다. 변경 이력은 `docs/revision_history.md`, 현재 코드는 `scripts/` 트리를 참고하세요.
 
 ## 변경 사항 요약
 
