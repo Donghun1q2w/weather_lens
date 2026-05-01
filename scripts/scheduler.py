@@ -9,17 +9,14 @@ import httpx
 from scripts.config.settings import ENVIRONMENT, INTERNAL_API_KEY
 from scripts.ops.collect_weather_report import run_collection
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# Initialize scheduler
 scheduler = AsyncIOScheduler()
 
-# Internal API base URL
 INTERNAL_API_BASE = "http://localhost:8000/internal"
 
 

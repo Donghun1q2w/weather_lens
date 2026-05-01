@@ -22,9 +22,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.config.settings import SQLITE_DB_PATH, THEME_IDS, KMA_API_KEY, BEACH_API_KEY
 
-# 결과 저장 폴더
 RESULT_DIR = PROJECT_ROOT / "result"
-RESULT_DIR.mkdir(exist_ok=True)
 
 # Open-Meteo API
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -1013,6 +1011,7 @@ def run_collection(sample_mode=False, sample_size=50, hourly_mode=False):
         sample_size: 샘플 크기
         hourly_mode: True면 72시간 전체 데이터 수집
     """
+    RESULT_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now()
     print(f"=" * 60)
     print(f"날씨 수집 시작: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
