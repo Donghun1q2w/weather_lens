@@ -32,8 +32,7 @@ scripts/
 ├── data/            # Static reference data + runtime SQLite (regions.db, ocean_mapping.db)
 ├── feedbacks/       # User-feedback collection / analysis / automation
 ├── messengers/      # Telegram bot
-├── models/          # Domain dataclasses (region, weather, ocean, feedback)
-├── processors/      # Cache writer, data merger, region/beach merger, weather integrator
+├── processors/      # Cache writer, data merger, region loader
 ├── recommenders/    # Region recommender (theme-top selection)
 ├── scorers/         # Theme scorers + batch scorer
 ├── utils/           # Astronomy, ocean station mapping
@@ -156,7 +155,6 @@ flowchart LR
         BC[BaseCollector ABC] -.subclassed by.- KCol
         KCol[KMAForecastCollector]
         OCol[OpenMeteoCollector]
-        ACol[AirKoreaCollector<br/>imported but currently unused]
         RL[RegionLoader<br/>scripts.processors]
         DM[merge_weather_data<br/>scripts.processors.data_merger]
         CW["CacheWriter<br/>scripts.processors.cache_writer"]
@@ -286,10 +284,9 @@ flowchart TB
         utl[scripts.utils]
     end
 
-    subgraph Static["Config / Static data / Models"]
+    subgraph Static["Config / Static data"]
         cfg[scripts.config<br/>settings + logging]
         dat[scripts.data<br/>beaches / marine_zones / ocean_stations / *.db]
-        mod[scripts.models<br/>region/weather/ocean/feedback]
     end
 
     intnl --> col
@@ -316,10 +313,6 @@ flowchart TB
     proc --> dat
     rec --> dat
 
-    col -. uses .-> mod
-    proc -. uses .-> mod
-    rec -. uses .-> mod
-    fb -. uses .-> mod
 ```
 
 ### 8. Lifecycle Scripts
@@ -383,7 +376,7 @@ flowchart LR
 - **공용 logging**: `scripts/config/logging.py`의 `configure_logging()`이 main과 scheduler에서 동일 포맷을 적용.
 - `BASE_DIR`**의 의미**: `scripts/config/settings.py`의 `BASE_DIR = Path(__file__).parent.parent`는 *프로젝트 루트가 아니라* `scripts/` *디렉터리*를 가리킨다. 모든 자원(`data/`, `config/weights.json`)이 함께 이동했기 때문에 의미가 자연스럽게 정합.
 - **라이프사이클 스크립트 직접 실행 호환**: 14개 스크립트가 `sys.path.insert(0, PROJECT_ROOT)` (3단계 위 = repo root)를 유지해 `python scripts/setup/...` 형태 직접 실행이 동작. 표준 사용은 `python -m scripts.setup.init_database`도 가능.
-- `AirKoreaCollector` **의심 dead code**: `scripts.collectors.__init__`로 export되고 `internal.py`에서 import되지만, 실제 호출 사이트 0건. 추후 사용 예정이거나 제거 후보.
-- `models/`**는 정적 dataclass 계층**: 다이어그램 7번 점선으로만 등장. 함수 호출 흐름이 아니라 함수 시그니처가 참조하는 타입.
+- **`AirKoreaCollector`, `FeedbackAutomation/ScorePenaltyManager`, `models/{region,weather,ocean,feedback}.py`, `processors/{weather_integrator, region_beach_merger}.py`** 모두 호출 사이트 0건 확인 후 2026-05-01에 제거됨 (`docs/plans/2026-05-01_204620_dead-code-cleanup-and-consolidation.md`).
+- **`processors/__init__.py`는 외부 public 항목만 노출**: `CacheWriter`, `merge_weather_data`, `RegionLoader`. 그 외 helper(`WeatherData`, `WeatherValue`, `weather_data_to_dict`, `write_*_cache`, `batch_cache_*`, `initialize_regions_db`, `load_all_regions`, `load_region`)는 모듈 내부 정의로만 남고 `__all__`에서 빠짐.
 - **CORS**: `api/main.py`에서 `allow_origins=["*"]`로 열려 있음 — 프로덕션에선 좁힐 것을 코멘트에 명시.
 - **인증 게이트**: `/internal/*`는 `verify_internal_key`(헤더 `X-API-Key` 검증, 401 또는 403)로 보호. scheduler는 직접 import이므로 인증 우회 — 같은 비즈니스 함수가 두 진입 경로를 가짐을 인지할 것.

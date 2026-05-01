@@ -191,6 +191,49 @@ def fetch_openmeteo(lat, lon, hourly_mode=False):
         return None
 
 
+def _process_batch_response(data, batch, hourly_mode, results):
+    """Open-Meteo bulk 응답 1건을 region별 results에 채워넣는다.
+
+    fetch_openmeteo_bulk에서 첫 호출과 rate-limit 재시도 호출 모두 같은 후처리를
+    수행하므로 추출.
+    """
+    responses = data if isinstance(data, list) else [data]
+    now_hour = datetime.now().hour
+
+    for idx, (region, _) in enumerate(batch):
+        if idx >= len(responses):
+            continue
+        location_data = responses[idx]
+        if "hourly" not in location_data:
+            continue
+        hourly = location_data["hourly"]
+        times = hourly.get("time", [])
+
+        if hourly_mode:
+            hourly_data = []
+            for i in range(len(times)):
+                hourly_data.append({
+                    "datetime": times[i],
+                    "temperature": hourly["temperature_2m"][i] if i < len(hourly["temperature_2m"]) else None,
+                    "humidity": hourly["relative_humidity_2m"][i] if i < len(hourly["relative_humidity_2m"]) else None,
+                    "rain_probability": hourly["precipitation_probability"][i] if i < len(hourly["precipitation_probability"]) else None,
+                    "cloud_cover": hourly["cloud_cover"][i] if i < len(hourly["cloud_cover"]) else None,
+                    "wind_speed": hourly["wind_speed_10m"][i] if i < len(hourly["wind_speed_10m"]) else None,
+                })
+            results[region["code"]] = {
+                "hourly": hourly_data,
+                "current": hourly_data[now_hour] if hourly_data else None,
+            }
+        else:
+            results[region["code"]] = {
+                "temperature": hourly["temperature_2m"][now_hour] if now_hour < len(hourly["temperature_2m"]) else None,
+                "humidity": hourly["relative_humidity_2m"][now_hour] if now_hour < len(hourly["relative_humidity_2m"]) else None,
+                "rain_probability": hourly["precipitation_probability"][now_hour] if now_hour < len(hourly["precipitation_probability"]) else None,
+                "cloud_cover": hourly["cloud_cover"][now_hour] if now_hour < len(hourly["cloud_cover"]) else None,
+                "wind_speed": hourly["wind_speed_10m"][now_hour] if now_hour < len(hourly["wind_speed_10m"]) else None,
+            }
+
+
 def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=100):
     """Open-Meteo Bulk API로 여러 위치의 날씨 데이터 일괄 수집
 
@@ -232,51 +275,7 @@ def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=100):
 
             response = requests.get(OPENMETEO_URL, params=params, timeout=60)
             response.raise_for_status()
-            data = response.json()
-
-            # 응답이 배열인지 확인 (단일 위치면 dict, 여러 위치면 list)
-            if isinstance(data, list):
-                responses = data
-            else:
-                responses = [data]
-
-            # 각 지역별 결과 처리
-            for idx, (region, _) in enumerate(batch):
-                if idx >= len(responses):
-                    continue
-
-                location_data = responses[idx]
-                if "hourly" not in location_data:
-                    continue
-
-                hourly = location_data["hourly"]
-                times = hourly.get("time", [])
-
-                if hourly_mode:
-                    hourly_data = []
-                    for i in range(len(times)):
-                        hourly_data.append({
-                            "datetime": times[i],
-                            "temperature": hourly["temperature_2m"][i] if i < len(hourly["temperature_2m"]) else None,
-                            "humidity": hourly["relative_humidity_2m"][i] if i < len(hourly["relative_humidity_2m"]) else None,
-                            "rain_probability": hourly["precipitation_probability"][i] if i < len(hourly["precipitation_probability"]) else None,
-                            "cloud_cover": hourly["cloud_cover"][i] if i < len(hourly["cloud_cover"]) else None,
-                            "wind_speed": hourly["wind_speed_10m"][i] if i < len(hourly["wind_speed_10m"]) else None,
-                        })
-                    results[region["code"]] = {
-                        "hourly": hourly_data,
-                        "current": hourly_data[datetime.now().hour] if hourly_data else None
-                    }
-                else:
-                    current_hour = datetime.now().hour
-                    idx_h = current_hour
-                    results[region["code"]] = {
-                        "temperature": hourly["temperature_2m"][idx_h] if idx_h < len(hourly["temperature_2m"]) else None,
-                        "humidity": hourly["relative_humidity_2m"][idx_h] if idx_h < len(hourly["relative_humidity_2m"]) else None,
-                        "rain_probability": hourly["precipitation_probability"][idx_h] if idx_h < len(hourly["precipitation_probability"]) else None,
-                        "cloud_cover": hourly["cloud_cover"][idx_h] if idx_h < len(hourly["cloud_cover"]) else None,
-                        "wind_speed": hourly["wind_speed_10m"][idx_h] if idx_h < len(hourly["wind_speed_10m"]) else None,
-                    }
+            _process_batch_response(response.json(), batch, hourly_mode, results)
 
             time.sleep(2)  # API Rate Limit 방지 (배치 간 2초 대기)
 
@@ -288,47 +287,7 @@ def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=100):
                 try:
                     response = requests.get(OPENMETEO_URL, params=params, timeout=60)
                     response.raise_for_status()
-                    data = response.json()
-
-                    if isinstance(data, list):
-                        responses = data
-                    else:
-                        responses = [data]
-
-                    for idx, (region, _) in enumerate(batch):
-                        if idx >= len(responses):
-                            continue
-                        location_data = responses[idx]
-                        if "hourly" not in location_data:
-                            continue
-                        hourly = location_data["hourly"]
-                        times = hourly.get("time", [])
-
-                        if hourly_mode:
-                            hourly_data = []
-                            for i in range(len(times)):
-                                hourly_data.append({
-                                    "datetime": times[i],
-                                    "temperature": hourly["temperature_2m"][i] if i < len(hourly["temperature_2m"]) else None,
-                                    "humidity": hourly["relative_humidity_2m"][i] if i < len(hourly["relative_humidity_2m"]) else None,
-                                    "rain_probability": hourly["precipitation_probability"][i] if i < len(hourly["precipitation_probability"]) else None,
-                                    "cloud_cover": hourly["cloud_cover"][i] if i < len(hourly["cloud_cover"]) else None,
-                                    "wind_speed": hourly["wind_speed_10m"][i] if i < len(hourly["wind_speed_10m"]) else None,
-                                })
-                            results[region["code"]] = {
-                                "hourly": hourly_data,
-                                "current": hourly_data[datetime.now().hour] if hourly_data else None
-                            }
-                        else:
-                            current_hour = datetime.now().hour
-                            idx_h = current_hour
-                            results[region["code"]] = {
-                                "temperature": hourly["temperature_2m"][idx_h] if idx_h < len(hourly["temperature_2m"]) else None,
-                                "humidity": hourly["relative_humidity_2m"][idx_h] if idx_h < len(hourly["relative_humidity_2m"]) else None,
-                                "rain_probability": hourly["precipitation_probability"][idx_h] if idx_h < len(hourly["precipitation_probability"]) else None,
-                                "cloud_cover": hourly["cloud_cover"][idx_h] if idx_h < len(hourly["cloud_cover"]) else None,
-                                "wind_speed": hourly["wind_speed_10m"][idx_h] if idx_h < len(hourly["wind_speed_10m"]) else None,
-                            }
+                    _process_batch_response(response.json(), batch, hourly_mode, results)
                     print(f"  재시도 성공")
                     time.sleep(2)
                 except Exception as retry_e:

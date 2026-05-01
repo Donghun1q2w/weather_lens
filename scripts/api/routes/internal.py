@@ -20,7 +20,6 @@ from scripts.config.settings import (
 from scripts.collectors import (
     KMAForecastCollector,
     OpenMeteoCollector,
-    AirKoreaCollector,
     KHOAOceanCollector,
     CollectorError,
 )
@@ -28,7 +27,6 @@ from scripts.processors import (
     merge_weather_data,
     CacheWriter,
     RegionLoader,
-    weather_data_to_dict,
 )
 from scripts.scorers import get_all_scorers, get_scorer_by_theme_id
 from scripts.recommenders import RegionRecommender
