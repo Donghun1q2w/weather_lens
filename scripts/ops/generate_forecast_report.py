@@ -39,11 +39,11 @@ DB_PATH = PROJECT_ROOT / "data" / "regions.db"
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 # Import collectors
-from collectors.beach_info import BeachInfoCollector
-from collectors.khoa_ocean import KHOAOceanCollector
-from config.settings import BEACH_API_KEY, KMA_API_KEY
-from utils.astronomy import get_sunrise_sunset, get_moon_times, get_moon_phase
-from utils.ocean_mapping import find_nearest_tide_station, find_nearest_temp_station
+from scripts.collectors.beach_info import BeachInfoCollector
+from scripts.collectors.khoa_ocean import KHOAOceanCollector
+from scripts.config.settings import BEACH_API_KEY, KMA_API_KEY
+from scripts.utils.astronomy import get_sunrise_sunset, get_moon_times, get_moon_phase
+from scripts.utils.ocean_mapping import find_nearest_tide_station, find_nearest_temp_station
 
 # API key fallback: BEACH_API_KEY가 없으면 KMA_API_KEY 사용
 BEACH_API_KEY_TO_USE = BEACH_API_KEY or KMA_API_KEY

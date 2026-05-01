@@ -19,7 +19,7 @@ import urllib.request
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.settings import SQLITE_DB_PATH, DATA_DIR
+from scripts.config.settings import SQLITE_DB_PATH, DATA_DIR
 
 # 기상청 격자 변환
 def latlon_to_grid(lat: float, lon: float) -> Tuple[int, int]:

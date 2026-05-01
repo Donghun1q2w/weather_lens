@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.settings import SQLITE_DB_PATH
+from scripts.config.settings import SQLITE_DB_PATH
 
 # 기본 출사포인트 데이터 (유명 촬영지)
 DEFAULT_PHOTO_SPOTS = [

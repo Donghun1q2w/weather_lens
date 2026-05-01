@@ -15,7 +15,7 @@ import sys
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.settings import DATA_DIR, SQLITE_DB_PATH, OCEAN_MAPPING_DB_PATH
+from scripts.config.settings import DATA_DIR, SQLITE_DB_PATH, OCEAN_MAPPING_DB_PATH
 
 
 def create_regions_database():

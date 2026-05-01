@@ -1,5 +1,7 @@
 # 기상청 API 연동 가이드
 
+> ⚠️ **Stale notice (2026-05-01)**: 본 문서가 인용하는 일부 `scripts/<flat>.py` 경로는 이미 삭제·통합된 옛 위치입니다. 현재 코드는 `docs/revision_history.md`와 `scripts/` 트리를 참고하세요.
+
 ## 개요
 
 Weather Lens는 기상청 단기예보 데이터를 수집하기 위해 두 가지 API 소스를 지원합니다:

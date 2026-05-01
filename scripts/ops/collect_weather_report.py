@@ -20,7 +20,7 @@ import time
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.settings import SQLITE_DB_PATH, THEME_IDS, KMA_API_KEY, BEACH_API_KEY
+from scripts.config.settings import SQLITE_DB_PATH, THEME_IDS, KMA_API_KEY, BEACH_API_KEY
 
 # 결과 저장 폴더
 RESULT_DIR = PROJECT_ROOT / "result"

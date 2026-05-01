@@ -18,7 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
-from config.settings import (
+from scripts.config.settings import (
     KMA_API_KEY,
     AIRKOREA_API_KEY,
     KHOA_API_KEY,

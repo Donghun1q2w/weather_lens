@@ -1,0 +1,56 @@
+{
+  "coordinates": {
+    "lat": 37.5665,
+    "lng": 126.978
+  },
+  "forecast": [
+    {
+      "cloud": {
+        "avg": 52.0,
+        "deviation_flag": false,
+        "kma": 50.0,
+        "openmeteo": 55.0
+      },
+      "datetime": "2026-01-31T12:00:00",
+      "humidity": {
+        "avg": 60.8,
+        "deviation_flag": false,
+        "kma": 60.0,
+        "openmeteo": 62.0
+      },
+      "pm10": 30.0,
+      "pm25": 15.0,
+      "rain_amount": {
+        "avg": 0.0,
+        "deviation_flag": false,
+        "kma": 0.0,
+        "openmeteo": 0.0
+      },
+      "rain_prob": {
+        "avg": 28.0,
+        "deviation_flag": false,
+        "kma": 30.0,
+        "openmeteo": 25.0
+      },
+      "sunrise": "06:30",
+      "sunset": "18:00",
+      "temp": {
+        "avg": 14.8,
+        "deviation_flag": false,
+        "kma": 15.0,
+        "openmeteo": 14.5
+      },
+      "visibility": 10.0,
+      "wind_speed": {
+        "avg": 3.38,
+        "deviation_flag": false,
+        "kma": 3.5,
+        "openmeteo": 3.2
+      }
+    }
+  ],
+  "ocean_station_id": null,
+  "region_code": "1168010100",
+  "region_name": "서울특별시 강남구 역삼동",
+  "updated_at": "2026-01-31T19:56:57.249526"
+}

@@ -19,7 +19,7 @@ import ssl
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.settings import SQLITE_DB_PATH
+from scripts.config.settings import SQLITE_DB_PATH
 
 # SSL 컨텍스트 (인증서 검증 비활성화)
 ssl_context = ssl.create_default_context()

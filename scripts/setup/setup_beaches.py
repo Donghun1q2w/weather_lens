@@ -17,7 +17,7 @@ from math import radians, cos, sin, asin, sqrt
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from data.beaches import BEACHES
+from scripts.data.beaches import BEACHES
 
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
