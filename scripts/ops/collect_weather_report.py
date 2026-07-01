@@ -9,12 +9,15 @@
 """
 import sqlite3
 import json
+import logging
 import requests
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import time
+
+logger = logging.getLogger(__name__)
 
 # 프로젝트 루트 경로 추가
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -27,8 +30,9 @@ RESULT_DIR = PROJECT_ROOT / "result"
 # Open-Meteo API
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
-# KMA 해상예보 API
-KMA_MARINE_URL = "https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getWthrMarFcst"
+# KMA 해상예보 API — apihub의 올바른 해상예보 오퍼레이션은 getSeaFcst.
+# (getWthrMarFcst는 apihub에 존재하지 않아 매 호출 404 "유효하지 않은 API" 반환.)
+KMA_MARINE_URL = "https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getSeaFcst"
 
 # 해수욕장 예보 API
 BEACH_API_URL = "http://apis.data.go.kr/1360000/BeachInfoservice/getVilageFcstBeach"
@@ -44,6 +48,21 @@ MARINE_ZONE_CODES = {
     "12C20000": "동해중부",
     "12C30000": "동해북부",
     "12D10000": "제주도"
+}
+
+# 해상광역예보구역(12X..0000) → getSeaFcst 앞바다 예보구역 regId 매핑.
+# getSeaFcst는 해상광역 코드(12A20000 등)에는 NO_DATA를 반환하므로, 각 해역의
+# 대표 앞바다 regId로 변환해서 조회한다. (2026-07-01 apihub getSeaFcst 라이브 검증)
+MARINE_ZONE_TO_SEA_REGID = {
+    "12A10000": "12A10100",  # 서해북부 앞바다
+    "12A20000": "12A20100",  # 서해중부 앞바다
+    "12A30000": "12A30100",  # 서해남부 앞바다
+    "12B10000": "12B10100",  # 남해서부 앞바다
+    "12B20000": "12B20100",  # 남해동부 앞바다
+    "12C10000": "12C10100",  # 동해남부 앞바다
+    "12C20000": "12C20100",  # 동해중부 앞바다
+    "12C30000": "12C30100",  # 동해북부 앞바다
+    "12D10000": "12F00100",  # 제주도 앞바다 (12F 계열)
 }
 
 # 시도별 해상구역 매핑 (해안 지역용)
@@ -134,6 +153,50 @@ def get_all_regions():
     return regions
 
 
+def map_regions_to_beaches(coastal_regions):
+    """해안 지역 각각을 실제 해수욕장(beach_num)에 매핑.
+
+    beaches 테이블의 region_code 정확 매칭을 우선하고, 없으면 위경도상 가장 가까운
+    해수욕장으로 매핑한다. (기존 'beach_num = 순번' 임시 매핑을 대체 — 순번 매핑은
+    지역과 무관한 해수욕장 데이터를 붙이는 버그였음.)
+
+    Returns:
+        {region_code: beach_num}
+    """
+    conn = sqlite3.connect(SQLITE_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT beach_num, lat, lon, region_code FROM beaches")
+    beaches = cursor.fetchall()
+    conn.close()
+
+    if not beaches:
+        logger.warning("beaches 테이블이 비어 있어 해수욕장 매핑을 건너뜀")
+        return {}
+
+    exact = {}          # region_code -> beach_num (정확 매칭)
+    coords = []         # (beach_num, lat, lon)
+    for beach_num, blat, blon, breg in beaches:
+        if breg and breg not in exact:
+            exact[breg] = beach_num
+        if blat is not None and blon is not None:
+            coords.append((beach_num, blat, blon))
+
+    mapping = {}
+    for region in coastal_regions:
+        code = region["code"]
+        if code in exact:
+            mapping[code] = exact[code]
+            continue
+        rlat, rlon = region.get("lat"), region.get("lon")
+        if rlat is None or rlon is None or not coords:
+            continue
+        # 가장 가까운 해수욕장 (제곱 유클리드 거리 — 국지 범위라 근사로 충분)
+        nearest = min(coords, key=lambda b: (b[1] - rlat) ** 2 + (b[2] - rlon) ** 2)
+        mapping[code] = nearest[0]
+
+    return mapping
+
+
 def fetch_openmeteo(lat, lon, hourly_mode=False):
     """Open-Meteo에서 날씨 데이터 수집 (단일 위치)
 
@@ -188,6 +251,7 @@ def fetch_openmeteo(lat, lon, hourly_mode=False):
                 "wind_speed": hourly["wind_speed_10m"][idx] if idx < len(hourly["wind_speed_10m"]) else None,
             }
     except Exception as e:
+        logger.warning(f"Open-Meteo 수집 실패: lat={lat} lon={lon} err={e!r}")
         return None
 
 
@@ -322,9 +386,37 @@ def fetch_openmeteo_bulk(regions, hourly_mode=False, batch_size=100):
     return results
 
 
+def _to_float(value):
+    """숫자/문자 값을 안전하게 float으로 변환 (실패 시 None)."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _avg(a, b):
+    """None을 무시하고 평균 (둘 다 None이면 None)."""
+    vals = [v for v in (a, b) if v is not None]
+    if not vals:
+        return None
+    return sum(vals) / len(vals)
+
+
 def fetch_marine_forecast(marine_zone_code):
-    """KMA 해상예보 수집"""
+    """KMA 해상예보(getSeaFcst) 수집.
+
+    marine_zone_code는 해상광역예보구역(예: 12A20000). getSeaFcst는 앞바다 regId를
+    요구하므로 MARINE_ZONE_TO_SEA_REGID로 변환해 조회한다. 응답 스키마는
+    wh1/wh2(파고 하한/상한 m), ws1/ws2(풍속 하한/상한 m/s), wf, wd1, numEf, tmFc.
+    """
     if not KMA_API_KEY:
+        return None
+
+    sea_reg_id = MARINE_ZONE_TO_SEA_REGID.get(marine_zone_code)
+    if not sea_reg_id:
+        logger.warning(f"해상예보 앞바다 regId 매핑 없음: zone={marine_zone_code}")
         return None
 
     try:
@@ -332,7 +424,7 @@ def fetch_marine_forecast(marine_zone_code):
             "pageNo": 1,
             "numOfRows": 20,
             "dataType": "JSON",
-            "regId": marine_zone_code,
+            "regId": sea_reg_id,
             "authKey": KMA_API_KEY
         }
 
@@ -341,7 +433,12 @@ def fetch_marine_forecast(marine_zone_code):
         data = response.json()
 
         header = data.get("response", {}).get("header", {})
-        if header.get("resultCode") != "00":
+        result_code = header.get("resultCode")
+        if result_code != "00":
+            logger.warning(
+                f"해상예보 응답 오류: zone={marine_zone_code} regId={sea_reg_id} "
+                f"resultCode={result_code} msg={header.get('resultMsg')}"
+            )
             return None
 
         items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
@@ -350,10 +447,6 @@ def fetch_marine_forecast(marine_zone_code):
 
         if isinstance(items, dict):
             items = [items]
-
-        # 파고 등급 → 높이 변환
-        wave_mapping = {1: 0.25, 2: 0.75, 3: 1.5, 4: 2.5, 5: 3.5}
-        wave_desc = {1: "0~0.5m", 2: "0.5~1m", 3: "1~2m", 4: "2~3m", 5: "3m+"}
 
         forecasts = []
         base_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -370,26 +463,18 @@ def fetch_marine_forecast(marine_zone_code):
                 forecast_dt = base_date + timedelta(days=day_offset)
                 forecast_dt = forecast_dt.replace(hour=6 if is_morning else 15)
 
-            # 파고 파싱
-            wav_str = item.get("wav", "")
-            wave_height = None
+            # 파고 파싱 (getSeaFcst: wh1=하한, wh2=상한, 단위 m)
+            wh_low = _to_float(item.get("wh1"))
+            wh_high = _to_float(item.get("wh2"))
+            wave_height = _avg(wh_low, wh_high)
             wave_desc_str = None
-            if wav_str:
-                try:
-                    wav_level = int(wav_str)
-                    wave_height = wave_mapping.get(wav_level)
-                    wave_desc_str = wave_desc.get(wav_level)
-                except ValueError:
-                    pass
+            if wh_low is not None and wh_high is not None:
+                wave_desc_str = f"{wh_low:g}~{wh_high:g}m"
+            elif wave_height is not None:
+                wave_desc_str = f"{wave_height:g}m"
 
-            # 풍속 파싱
-            ws_str = item.get("ws", "")
-            wind_speed = None
-            if ws_str:
-                try:
-                    wind_speed = float(ws_str)
-                except ValueError:
-                    pass
+            # 풍속 파싱 (getSeaFcst: ws1=하한, ws2=상한, 단위 m/s)
+            wind_speed = _avg(_to_float(item.get("ws1")), _to_float(item.get("ws2")))
 
             forecasts.append({
                 "datetime": forecast_dt.isoformat(),
@@ -404,10 +489,11 @@ def fetch_marine_forecast(marine_zone_code):
         return {
             "zone_code": marine_zone_code,
             "zone_name": MARINE_ZONE_CODES.get(marine_zone_code, ""),
-            "announce_time": items[0].get("announceTime") if items else None,
+            "announce_time": items[0].get("tmFc") if items else None,
             "forecasts": forecasts
         }
     except Exception as e:
+        logger.warning(f"해상예보 수집 실패: zone={marine_zone_code} regId={sea_reg_id} err={e!r}")
         return None
 
 
@@ -518,6 +604,7 @@ def fetch_beach_forecast(beach_num):
         return None
 
     except Exception as e:
+        logger.warning(f"해수욕장 수집 실패: beach_num={beach_num} err={e!r}")
         return None
 
 
@@ -1018,21 +1105,22 @@ def run_collection(sample_mode=False, sample_size=50, hourly_mode=False):
     beach_forecasts = {}
     if BEACH_API_KEY:
         print("\n해수욕장 날씨 수집 중...")
-        # 해안 지역에 대해 beach_num 매핑 (임시로 1~420 범위에서 지역별 할당)
-        # 실제로는 DB에 beach_num이 저장되어 있어야 하지만,
-        # 현재는 해안 지역 순서대로 1~420 범위 내에서 매핑
+        # 각 해안 지역을 실제 해수욕장에 매핑 (region_code 정확 매칭 → 없으면 최근접).
         coastal_regions = [r for r in regions if r["is_coastal"]]
-        beach_count = min(len(coastal_regions), 420)
-
-        for idx, region in enumerate(coastal_regions[:beach_count], 1):
-            beach_num = idx  # 임시 매핑
-            print(f"\r  해수욕장 {idx}/{beach_count}...", end="", flush=True)
-            beach_data = fetch_beach_forecast(beach_num)
+        region_to_beach = map_regions_to_beaches(coastal_regions)
+        total = len(region_to_beach)
+        beach_cache = {}  # 동일 beach_num 중복 API 호출 방지
+        for idx, (region_code, beach_num) in enumerate(region_to_beach.items(), 1):
+            print(f"\r  해수욕장 {idx}/{total}...", end="", flush=True)
+            if beach_num not in beach_cache:
+                beach_cache[beach_num] = fetch_beach_forecast(beach_num)
+                time.sleep(0.1)  # API 부하 방지
+            beach_data = beach_cache[beach_num]
             if beach_data:
-                beach_forecasts[region["code"]] = beach_data
-            time.sleep(0.1)  # API 부하 방지
+                beach_forecasts[region_code] = beach_data
 
-        print(f"\r해수욕장 데이터 수집 완료: {len(beach_forecasts)}/{beach_count}개")
+        print(f"\r해수욕장 데이터 수집 완료: {len(beach_forecasts)}/{total}개 "
+              f"(해수욕장 {len(beach_cache)}곳 조회)")
     else:
         print("⚠️ BEACH_API_KEY 없음 - 해수욕장 데이터 건너뜀")
 

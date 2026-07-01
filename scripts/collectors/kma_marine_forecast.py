@@ -17,9 +17,14 @@ class KMAMarineForecastCollector(BaseCollector):
     """
 
     # API 소스별 기본 URL
+    # NOTE: 이 클래스는 현재 어디서도 인스턴스화되지 않는 미사용 코드다. 실사용 해상예보는
+    # scripts/ops/collect_weather_report.py:fetch_marine_forecast(apihub getSeaFcst)가 담당한다.
+    # apihub에는 getWthrMarFcst가 없어 404이므로 getSeaFcst로 교정. 단 apihub는 앞바다 regId와
+    # getSeaFcst 스키마(wh1/wh2, ws1/ws2)를 쓰므로, 이 클래스를 되살릴 경우 _parse_apihub_data도
+    # 그에 맞게 수정해야 한다. (data.go.kr의 getWthrMarFcst는 정상 오퍼레이션이라 그대로 둠.)
     API_SOURCES = {
         "data.go.kr": "http://apis.data.go.kr/1360000/VilageFcstMsgService/getWthrMarFcst",
-        "apihub.kma.go.kr": "https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getWthrMarFcst"
+        "apihub.kma.go.kr": "https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstMsgService/getSeaFcst"
     }
 
     # 해상예보구역 코드

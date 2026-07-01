@@ -2,11 +2,16 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 CACHE_DIR = DATA_DIR / "cache"
 BOUNDARIES_DIR = DATA_DIR / "boundaries"
+
+# .env는 repo 루트(BASE_DIR.parent)에 위치. 명시적 경로 로드 — cwd 의존 회피.
+load_dotenv(BASE_DIR.parent / ".env")
 
 # Environment
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
@@ -14,7 +19,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # API Keys
 KMA_API_KEY = os.getenv("KMA_API_KEY", "")
-KMA_API_SOURCE = os.getenv("KMA_API_SOURCE", "data.go.kr")  # "data.go.kr" or "apihub.kma.go.kr"
+KMA_API_SOURCE = os.getenv("KMA_API_SOURCE", "apihub.kma.go.kr")  # "apihub.kma.go.kr" or "data.go.kr". 현재 KMA_API_KEY는 apihub 전용 키(데이터포털 serviceKey로는 401)이므로 apihub 기본.
 AIRKOREA_API_KEY = os.getenv("AIRKOREA_API_KEY", "")
 KHOA_API_KEY = os.getenv("KHOA_API_KEY", "")  # Deprecated: 조석 데이터는 공공데이터포털 조석예보(고, 저조) API 사용
 BEACH_API_KEY = os.getenv("BEACH_API_KEY", "")

@@ -1,5 +1,5 @@
 """Internal API endpoints for scheduled operations"""
-from fastapi import APIRouter, HTTPException, Header, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Header, BackgroundTasks, Depends
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 import logging
@@ -139,7 +139,7 @@ async def collect_weather() -> Dict[str, Any]:
 @router.post("/collect")
 async def trigger_data_collection(
     background_tasks: BackgroundTasks,
-    authorized: bool = verify_internal_key,
+    authorized: bool = Depends(verify_internal_key),
 ) -> Dict[str, Any]:
     """Trigger weather data collection in the background."""
     background_tasks.add_task(collect_weather)
@@ -217,7 +217,7 @@ async def calculate_scores() -> Dict[str, Any]:
 @router.post("/score")
 async def trigger_score_calculation(
     background_tasks: BackgroundTasks,
-    authorized: bool = verify_internal_key,
+    authorized: bool = Depends(verify_internal_key),
 ) -> Dict[str, Any]:
     """Trigger score recalculation in the background."""
     background_tasks.add_task(calculate_scores)
@@ -253,10 +253,20 @@ async def send_notification() -> Dict[str, Any]:
                     continue
 
                 curated_text = None
-                if curator:
+                if curator and top_regions:
                     try:
-                        curated_text = await curator.curate(theme_name, top_regions)
-                        results["curated"] += 1
+                        # 테마별 TOP 지역(1위)에 대한 자연어 큐레이션 생성.
+                        # get_national_top은 RegionScore 객체를 반환하므로 to_dict()로 정규화.
+                        top = top_regions[0]
+                        top_dict = top.to_dict() if hasattr(top, "to_dict") else top
+                        curated_text = await curator.generate_curation(
+                            region_name=top_dict.get("region_name", ""),
+                            theme_name=theme_name,
+                            score=top_dict.get("score", 0),
+                            weather_summary=top_dict.get("weather_summary") or {},
+                        )
+                        if curated_text:
+                            results["curated"] += 1
                     except Exception as e:
                         logger.warning(f"Curation failed for {theme_name}: {e}")
 
@@ -290,7 +300,7 @@ async def send_notification() -> Dict[str, Any]:
 @router.post("/notify")
 async def trigger_notification(
     background_tasks: BackgroundTasks,
-    authorized: bool = verify_internal_key,
+    authorized: bool = Depends(verify_internal_key),
 ) -> Dict[str, Any]:
     """Trigger Telegram notification in the background."""
     background_tasks.add_task(send_notification)
@@ -304,7 +314,7 @@ async def trigger_notification(
 
 @router.get("/status")
 async def get_system_status(
-    authorized: bool = verify_internal_key,
+    authorized: bool = Depends(verify_internal_key),
 ) -> Dict[str, Any]:
     """
     Get system status including last run times and health.
