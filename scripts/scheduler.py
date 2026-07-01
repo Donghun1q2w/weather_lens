@@ -5,7 +5,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from scripts.api.routes.internal import calculate_scores, collect_weather, send_notification
+from scripts.api.routes.internal import calculate_scores, collect_weather
 from scripts.config.logging import configure_logging
 from scripts.config.settings import ENVIRONMENT
 from scripts.ops.collect_weather_report import run_collection
@@ -55,18 +55,6 @@ async def recalculate_scores():
         logger.info("=== Score recalculation completed ===")
     except Exception as e:
         logger.error(f"Score recalculation failed: {e}")
-
-
-@scheduler.scheduled_job(CronTrigger(hour="20"), id="send_daily_recommendations")
-async def send_daily_recommendations():
-    """Runs at 20:00 (KST) daily."""
-    logger.info("=== Starting daily recommendation notification ===")
-    try:
-        result = await send_notification()
-        logger.info(f"[DailyRecommendation] {result}")
-        logger.info("=== Daily recommendation notification completed ===")
-    except Exception as e:
-        logger.error(f"Daily recommendation notification failed: {e}")
 
 
 def start_scheduler():

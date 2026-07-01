@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Weather Lens — Korean photography spot recommendation backend. Pulls weather, marine, and astronomy data from public APIs, scores each region per theme (sunrise/sunset, Milky Way, etc.), and serves recommendations via FastAPI + Telegram. Single-process Render deployment combining FastAPI app and APScheduler.
+Weather Lens — Korean photography spot recommendation backend. Pulls weather, marine, and astronomy data from public APIs, scores each region per theme (sunrise/sunset, Milky Way, etc.), and serves recommendations via FastAPI. Single-process Render deployment combining FastAPI app and APScheduler.
 
 ## Build and Development Commands
 
@@ -31,7 +31,6 @@ scripts/
 ├── curators/        # Gemini text curation
 ├── data/            # Static reference data + runtime SQLite (regions.db, ocean_mapping.db)
 ├── feedbacks/       # User-feedback collection / analysis / automation
-├── messengers/      # Telegram bot
 ├── processors/      # Cache writer, data merger, region loader
 ├── recommenders/    # Region recommender (theme-top selection)
 ├── scorers/         # Theme scorers + batch scorer
@@ -85,7 +84,7 @@ flowchart LR
         BD[scripts/data/boundaries/]
         WJ[scripts/config/weights.json]
         FBM[scripts.feedbacks/*]
-        INT[scripts.api.routes.internal<br/>collect_weather / calculate_scores / send_notification]
+        INT[scripts.api.routes.internal<br/>collect_weather / calculate_scores]
         CACHE[scripts/data/cache/]
     end
 
@@ -105,41 +104,37 @@ flowchart LR
 
 ### 3. Scheduler Cron Jobs
 
-4개 cron job은 모두 KST. 3개는 `internal.py`의 동일 비즈니스 함수를 직접 await; 1개(`generate_weather_report`)만 sync `run_collection`을 `asyncio.to_thread`로 실행.
+3개 cron job은 모두 KST. 2개는 `internal.py`의 동일 비즈니스 함수를 직접 await; 1개(`generate_weather_report`)만 sync `run_collection`을 `asyncio.to_thread`로 실행.
 
 ```mermaid
 flowchart TB
-    subgraph Sched["scripts.scheduler (AsyncIOScheduler, 4 cron jobs)"]
+    subgraph Sched["scripts.scheduler (AsyncIOScheduler, 3 cron jobs)"]
         J1["collect_weather_data<br/>06:00, 18:00 KST"]
         J2["generate_weather_report<br/>03:00, 15:00 KST"]
         J3["recalculate_scores<br/>07:00, 19:00 KST"]
-        J4["send_daily_recommendations<br/>20:00 KST"]
     end
 
     subgraph Logic["scripts.api.routes.internal (module-level async)"]
         F1[collect_weather]
         F3[calculate_scores]
-        F4[send_notification]
     end
 
     OPS["scripts.ops.collect_weather_report:<br/>run_collection (sync)"]
 
     J1 -- await --> F1
     J3 -- await --> F3
-    J4 -- await --> F4
     J2 -- "asyncio.to_thread<br/>+ wait_for(timeout=1800)" --> OPS
 
     subgraph API["POST /internal/* (auth: X-API-Key)"]
         E1["/internal/collect"]   -- BackgroundTasks --> F1
         E3["/internal/score"]     -- BackgroundTasks --> F3
-        E4["/internal/notify"]    -- BackgroundTasks --> F4
         E5["/internal/status (GET)<br/>cache health + config flags"]
     end
 ```
 
-### 4. Data Pipeline — collect → score → notify
+### 4. Data Pipeline — collect → score
 
-`internal.py`의 3단계 비즈니스 함수가 외부 API → 캐시 → 점수 → 추천 → 통지로 흘러간다. 각 단계의 처리 모듈을 모두 표시:
+`internal.py`의 2단계 비즈니스 함수가 외부 API → 캐시 → 점수 → 추천으로 흘러간다. 각 단계의 처리 모듈을 모두 표시:
 
 ```mermaid
 flowchart LR
@@ -147,8 +142,6 @@ flowchart LR
         KMA[KMA forecast API]
         OM[Open-Meteo API]
         AirK[AirKorea API]
-        Gem[Gemini API]
-        TG[Telegram Bot API]
     end
 
     subgraph CollectPhase["Phase 1: collect_weather"]
@@ -178,14 +171,6 @@ flowchart LR
         CW -. read cache .-> Batch
         Batch --> Recommender
         WJ2[scripts/config/weights.json] -.weights.- Themes
-    end
-
-    subgraph NotifyPhase["Phase 3: send_notification"]
-        Curator[GeminiCurator<br/>scripts.curators]
-        Messenger[TelegramMessenger<br/>scripts.messengers]
-        Recommender -- "get_national_top" --> Curator
-        Gem <--> Curator
-        Curator --> Messenger --> TG
     end
 
     SQLite[(scripts/data/regions.db)]
@@ -279,7 +264,6 @@ flowchart TB
         sco[scripts.scorers]
         rec[scripts.recommenders]
         cur[scripts.curators]
-        msg[scripts.messengers]
         fb[scripts.feedbacks]
         utl[scripts.utils]
     end
@@ -293,8 +277,6 @@ flowchart TB
     intnl --> proc
     intnl --> sco
     intnl --> rec
-    intnl --> cur
-    intnl --> msg
 
     ops --> proc
     ops --> utl
@@ -312,7 +294,6 @@ flowchart TB
     utl --> dat
     proc --> dat
     rec --> dat
-
 ```
 
 ### 8. Lifecycle Scripts
@@ -371,12 +352,12 @@ flowchart LR
 
 ### Cross-Cutting Notes
 
-- **Scheduler-route 통합**: 4개 cron job 중 3개(`collect_weather_data`, `recalculate_scores`, `send_daily_recommendations`)는 `internal.py`의 동일 비즈니스 함수를 직접 await, API 라우트는 그 함수를 `BackgroundTasks`로 래핑한다 (단일 source of truth).
+- **Scheduler-route 통합**: 3개 cron job 중 2개(`collect_weather_data`, `recalculate_scores`)는 `internal.py`의 동일 비즈니스 함수를 직접 await, API 라우트는 그 함수를 `BackgroundTasks`로 래핑한다 (단일 source of truth).
 - `generate_weather_report` **만 다름**: `run_collection`이 sync 대용량 IO 함수라 `asyncio.to_thread` + `asyncio.wait_for(timeout=1800)`로 격리. 내부에서 자체적으로 외부 API를 호출(Diagram 5).
 - **공용 logging**: `scripts/config/logging.py`의 `configure_logging()`이 main과 scheduler에서 동일 포맷을 적용.
 - `BASE_DIR`**의 의미**: `scripts/config/settings.py`의 `BASE_DIR = Path(__file__).parent.parent`는 *프로젝트 루트가 아니라* `scripts/` *디렉터리*를 가리킨다. 모든 자원(`data/`, `config/weights.json`)이 함께 이동했기 때문에 의미가 자연스럽게 정합.
 - **라이프사이클 스크립트 직접 실행 호환**: 14개 스크립트가 `sys.path.insert(0, PROJECT_ROOT)` (3단계 위 = repo root)를 유지해 `python scripts/setup/...` 형태 직접 실행이 동작. 표준 사용은 `python -m scripts.setup.init_database`도 가능.
-- **`AirKoreaCollector`, `FeedbackAutomation/ScorePenaltyManager`, `models/{region,weather,ocean,feedback}.py`, `processors/{weather_integrator, region_beach_merger}.py`** 모두 호출 사이트 0건 확인 후 2026-05-01에 제거됨 (`docs/plans/2026-05-01_204620_dead-code-cleanup-and-consolidation.md`).
-- **`processors/__init__.py`는 외부 public 항목만 노출**: `CacheWriter`, `merge_weather_data`, `RegionLoader`. 그 외 helper(`WeatherData`, `WeatherValue`, `weather_data_to_dict`, `write_*_cache`, `batch_cache_*`, `initialize_regions_db`, `load_all_regions`, `load_region`)는 모듈 내부 정의로만 남고 `__all__`에서 빠짐.
+- `AirKoreaCollector`**,** `FeedbackAutomation/ScorePenaltyManager`**,** `models/{region,weather,ocean,feedback}.py`**,** `processors/{weather_integrator, region_beach_merger}.py` 모두 호출 사이트 0건 확인 후 2026-05-01에 제거됨 (`docs/plans/2026-05-01_204620_dead-code-cleanup-and-consolidation.md`).
+- `processors/__init__.py`**는 외부 public 항목만 노출**: `CacheWriter`, `merge_weather_data`, `RegionLoader`. 그 외 helper(`WeatherData`, `WeatherValue`, `weather_data_to_dict`, `write_*_cache`, `batch_cache_*`, `initialize_regions_db`, `load_all_regions`, `load_region`)는 모듈 내부 정의로만 남고 `__all__`에서 빠짐.
 - **CORS**: `api/main.py`에서 `allow_origins=["*"]`로 열려 있음 — 프로덕션에선 좁힐 것을 코멘트에 명시.
 - **인증 게이트**: `/internal/*`는 `verify_internal_key`(헤더 `X-API-Key` 검증, 401 또는 403)로 보호. scheduler는 직접 import이므로 인증 우회 — 같은 비즈니스 함수가 두 진입 경로를 가짐을 인지할 것.

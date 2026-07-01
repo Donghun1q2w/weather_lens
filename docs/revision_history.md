@@ -4,6 +4,19 @@ Chronological log of project modifications.
 
 ---
 
+## 2026-07-01 23:06:00 — Telegram 알림 기능 전체 제거
+
+[Detail](revisions/2026-07-01_230600_remove-telegram-notification.md)
+
+- Telegram이 유일 알림 수단이라 알림 파이프라인 전체 삭제: `scripts/messengers/` 패키지(2파일), `internal.py`의 `send_notification`·`POST /internal/notify`·`telegram_configured` 플래그, `scheduler.py`의 `send_daily_recommendations`(20시) job. cron 4→3개.
+- config/의존성 정리: `settings.py`·`.env`·`.env.example`의 TELEGRAM_*, `requirements.txt`의 `python-telegram-bot`, `check_config.py`의 Telegram 체크 2건, `internal.py`의 죽은 import(`TELEGRAM_*`, `NATIONAL_TOP`, `GeminiCurator`, `TelegramMessenger`).
+- 문서: `CLAUDE.md`(개요·트리·Diagram 3/4/7·Cross-Cutting Notes, 2-phase 파이프라인), `scripts/api/README.md`(`/internal/notify` 블록).
+- 보존: `GeminiCurator`·`RegionRecommender` 패키지(Telegram 무관, 앱 미사용화되나 별도 cleanup 대상). `THEME_IDS`·`RegionRecommender`는 `calculate_scores`에서 계속 사용.
+- 검증: 코드/문서 telegram 0건, messengers 디렉터리 부재, py_compile 통과, TestClient로 cron 3개·`/notify`→404·`/status`에 telegram 키 없음 확인.
+- Plan: [`docs/plans/2026-07-01_225224_remove-telegram-notification.md`](plans/2026-07-01_225224_remove-telegram-notification.md).
+
+---
+
 ## 2026-05-01 20:54:40 — Dead code 제거 + __init__.py 재export 정리 + bulk helper 추출
 
 [Detail](revisions/2026-05-01_205440_dead-code-cleanup-and-consolidation.md)

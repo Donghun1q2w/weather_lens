@@ -4,6 +4,16 @@ Chronological log of project plans (newest first).
 
 ---
 
+## 2026-07-01 22:52:24 — Remove Telegram notification feature (전체 제거)
+
+[Detail](plans/2026-07-01_225224_remove-telegram-notification.md)
+
+**Status**: Completed (2026-07-01 23:06)
+
+Telegram 관련 기능 전체 제거. Telegram이 유일한 알림 전송 수단이므로 알림 파이프라인 전체(messengers 패키지, `internal.py`의 `send_notification`·`/notify`, scheduler 20시 `send_daily_recommendations` job)와 config/.env/의존성(`python-telegram-bot`), `check_config.py` 체크, `/status`의 `telegram_configured` 플래그, 관련 문서(CLAUDE.md, api/README.md)를 삭제·갱신. 결과: cron 4→3개, 알림 API 없음. `GeminiCurator`/`RegionRecommender`는 제거 후 앱 미사용이 되지만 Telegram과 무관하므로 패키지는 보존하고 internal.py의 죽은 import만 정리(별도 cleanup 대상으로 flag). 수용 기준: 코드 telegram 0건, messengers 디렉터리 부재, cron 3개, `/notify`→404, `/status`에 telegram 키 없음, import 성공/회귀 없음.
+
+---
+
 ## 2026-05-01 21:35:29 — KHOA / Beach 파고(wave) 데이터 미수집 디버깅
 
 [Detail](plans/2026-05-01_213529_khoa-wave-data-debug.md)

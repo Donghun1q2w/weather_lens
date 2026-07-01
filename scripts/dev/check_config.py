@@ -23,8 +23,6 @@ from scripts.config.settings import (
     AIRKOREA_API_KEY,
     KHOA_API_KEY,
     GEMINI_API_KEY,
-    TELEGRAM_BOT_TOKEN,
-    TELEGRAM_CHAT_ID,
     SQLITE_DB_PATH,
     OCEAN_MAPPING_DB_PATH,
     DATA_DIR,
@@ -60,8 +58,6 @@ def main():
     check_item("에어코리아 API", AIRKOREA_API_KEY)
     check_item("바다누리 API (KHOA)", KHOA_API_KEY)
     check_item("Gemini API", GEMINI_API_KEY)
-    check_item("Telegram Bot Token", TELEGRAM_BOT_TOKEN)
-    check_item("Telegram Chat ID", TELEGRAM_CHAT_ID)
 
     # 2. 데이터베이스 확인
     print("\n💾 데이터베이스 상태:")

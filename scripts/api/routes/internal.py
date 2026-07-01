@@ -10,10 +10,7 @@ from scripts.config.settings import (
     AIRKOREA_API_KEY,
     KHOA_API_KEY,
     GEMINI_API_KEY,
-    TELEGRAM_BOT_TOKEN,
-    TELEGRAM_CHAT_ID,
     THEME_IDS,
-    NATIONAL_TOP,
     DATA_DIR,
     INTERNAL_API_KEY,
 )
@@ -30,8 +27,6 @@ from scripts.processors import (
 )
 from scripts.scorers import get_all_scorers, get_scorer_by_theme_id
 from scripts.recommenders import RegionRecommender
-from scripts.curators import GeminiCurator
-from scripts.messengers import TelegramMessenger
 
 logger = logging.getLogger(__name__)
 
@@ -229,89 +224,6 @@ async def trigger_score_calculation(
     }
 
 
-async def send_notification() -> Dict[str, Any]:
-    """일일 추천 결과를 Telegram으로 전송. scheduler / API 양쪽에서 호출."""
-    results: Dict[str, Any] = {"themes_sent": 0, "curated": 0}
-
-    try:
-        recommender = RegionRecommender()
-        curator = GeminiCurator(GEMINI_API_KEY) if GEMINI_API_KEY else None
-        messenger = TelegramMessenger(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-
-        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-            logger.warning("Telegram not configured, skipping notification")
-            results["skipped"] = "Telegram not configured"
-            return results
-
-        all_recommendations = []
-
-        for theme_id, theme_name in THEME_IDS.items():
-            try:
-                top_regions = await recommender.get_national_top(theme_id, limit=NATIONAL_TOP)
-
-                if not top_regions:
-                    continue
-
-                curated_text = None
-                if curator and top_regions:
-                    try:
-                        # 테마별 TOP 지역(1위)에 대한 자연어 큐레이션 생성.
-                        # get_national_top은 RegionScore 객체를 반환하므로 to_dict()로 정규화.
-                        top = top_regions[0]
-                        top_dict = top.to_dict() if hasattr(top, "to_dict") else top
-                        curated_text = await curator.generate_curation(
-                            region_name=top_dict.get("region_name", ""),
-                            theme_name=theme_name,
-                            score=top_dict.get("score", 0),
-                            weather_summary=top_dict.get("weather_summary") or {},
-                        )
-                        if curated_text:
-                            results["curated"] += 1
-                    except Exception as e:
-                        logger.warning(f"Curation failed for {theme_name}: {e}")
-
-                all_recommendations.append({
-                    "theme_id": theme_id,
-                    "theme_name": theme_name,
-                    "regions": top_regions,
-                    "curated_text": curated_text,
-                })
-
-            except Exception as e:
-                logger.error(f"Recommendation failed for {theme_name}: {e}")
-
-        if all_recommendations:
-            try:
-                await messenger.send_daily_summary(all_recommendations)
-                results["themes_sent"] = len(all_recommendations)
-            except Exception as e:
-                logger.error(f"Telegram send failed: {e}")
-                results["send_error"] = str(e)
-
-        logger.info(f"Notification complete: {results}")
-
-    except Exception as e:
-        logger.error(f"Notification failed: {e}")
-        results["error"] = str(e)
-
-    return results
-
-
-@router.post("/notify")
-async def trigger_notification(
-    background_tasks: BackgroundTasks,
-    authorized: bool = Depends(verify_internal_key),
-) -> Dict[str, Any]:
-    """Trigger Telegram notification in the background."""
-    background_tasks.add_task(send_notification)
-    return {
-        "status": "triggered",
-        "operation": "notification",
-        "timestamp": datetime.utcnow().isoformat(),
-        "note": "Notification started in background",
-    }
-
-
 @router.get("/status")
 async def get_system_status(
     authorized: bool = Depends(verify_internal_key),
@@ -339,6 +251,5 @@ async def get_system_status(
             "airkorea_configured": bool(AIRKOREA_API_KEY),
             "khoa_configured": bool(KHOA_API_KEY),
             "gemini_configured": bool(GEMINI_API_KEY),
-            "telegram_configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
         },
     }

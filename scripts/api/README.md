@@ -95,9 +95,6 @@ Trigger: Weather data collection
 
 POST /internal/score
 Trigger: Score recalculation
-
-POST /internal/notify
-Trigger: Telegram notifications
 ```
 
 ## Environment Variables
@@ -116,7 +113,6 @@ LOG_LEVEL=INFO
 The scheduler (`scheduler.py`) calls internal endpoints at scheduled times:
 - 06:00, 18:00: Data collection
 - 07:00, 19:00: Score calculation
-- 20:00: Daily notifications
 
 ## CORS Configuration
 
