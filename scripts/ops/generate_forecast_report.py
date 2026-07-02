@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 import sys
 import time
@@ -45,8 +46,10 @@ DB_PATH = SQLITE_DB_PATH
 from scripts.utils.astronomy import get_sunrise_sunset, get_moon_times, get_moon_phase
 from scripts.utils.ocean_mapping import find_nearest_tide_station, find_nearest_temp_station
 
-# API key fallback: BEACH_API_KEY가 없으면 KMA_API_KEY 사용
-BEACH_API_KEY_TO_USE = BEACH_API_KEY or KMA_API_KEY
+# 마린(파고/수온/조석)은 data.go.kr BEACH 키 전용. KMA_API_KEY(apihub)는 이제
+# 육상 getVilageFcst 전용이므로 마린 폴백으로 쓰지 않는다(안 그러면 마린 비활성에도
+# 육상용 KMA 키로 BeachInfo가 돌아감).
+BEACH_API_KEY_TO_USE = BEACH_API_KEY
 
 
 # ============================================================================
@@ -145,6 +148,135 @@ def fetch_all_weather_data(regions: List[Dict], batch_size: int = 100) -> Dict[s
                 break  # 일반 오류는 재시도 안함
 
     print(f"\r  Bulk API 완료: {len(results)}/{len(valid_regions)} 성공              ")
+    return results
+
+
+# ============================================================================
+# STEP 1-KMA: 기상청 API허브 getVilageFcst 격자 수집 (Open-Meteo 대체)
+# ============================================================================
+# Open-Meteo 레이트리밋(429)으로 커버리지가 비결정적이라 기상청 동네예보 격자
+# 단기예보로 전환. 각 지점의 nx/ny(기상청 격자)로 getVilageFcst 호출. 전국
+# 3,616 읍면동이 ~411 격자로 축약되므로 (nx,ny) 중복제거 후 1콜/격자 → 결과를
+# 같은 격자의 모든 지점에 broadcast. 인증은 apihub authKey(KMA_API_KEY) 재사용.
+# 시정(visibility)은 기상청 예보에 없어 생략 → 스코어러가 기본 10km 적용.
+
+KMA_VILAGE_URL = ("https://apihub.kma.go.kr/api/typ02/openApi/"
+                  "VilageFcstInfoService_2.0/getVilageFcst")
+_SKY_TO_CLOUD = {1: 20, 3: 60, 4: 90}  # KMA SKY 코드 → 운량% 근사(휴리스틱)
+_VILAGE_BASE_HOURS = [2, 5, 8, 11, 14, 17, 20, 23]  # 발표시각(3시간 간격)
+
+
+def _vilage_base_datetime(now: datetime) -> tuple:
+    """getVilageFcst 최신 base_date/base_time (발표 후 +45분 여유 반영)."""
+    cur_min = now.hour * 60 + now.minute
+    chosen = None
+    for h in _VILAGE_BASE_HOURS:
+        if cur_min >= h * 60 + 45:
+            chosen = h
+    if chosen is None:  # 02:45 이전 → 전일 2300 발표
+        prev = now - timedelta(days=1)
+        return prev.strftime("%Y%m%d"), "2300"
+    return now.strftime("%Y%m%d"), f"{chosen:02d}00"
+
+
+def _num(v):
+    """숫자 문자열 → float, 비숫자/결측 → None."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _fetch_vilage_grid(nx: int, ny: int, base_date: str, base_time: str,
+                       api_key: str) -> List[Dict]:
+    """단일 격자 getVilageFcst → hourly 리스트(Open-Meteo와 동일 스키마)."""
+    params = {
+        "pageNo": 1, "numOfRows": 1000, "dataType": "JSON",
+        "base_date": base_date, "base_time": base_time,
+        "nx": nx, "ny": ny, "authKey": api_key,
+    }
+    resp = requests.get(KMA_VILAGE_URL, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    items = (data.get("response", {}).get("body", {})
+             .get("items", {}).get("item", []))
+    by_time = {}
+    for it in items:
+        key = (it.get("fcstDate") or "") + (it.get("fcstTime") or "")
+        by_time.setdefault(key, {})[it.get("category")] = it.get("fcstValue")
+
+    hourly = []
+    for key in sorted(by_time):
+        if len(key) < 12:
+            continue
+        v = by_time[key]
+        d, t = key[:8], key[8:12]
+        dt_iso = f"{d[:4]}-{d[4:6]}-{d[6:8]}T{t[:2]}:{t[2:]}"
+        sky = v.get("SKY")
+        try:
+            cloud = _SKY_TO_CLOUD.get(int(sky), 50) if sky not in (None, "") else None
+        except (ValueError, TypeError):
+            cloud = None
+        hourly.append({
+            "datetime": dt_iso,
+            "temperature": _num(v.get("TMP")),
+            "humidity": _num(v.get("REH")),
+            "rain_probability": _num(v.get("POP")),
+            "cloud_cover": cloud,
+            "wind_speed": _num(v.get("WSD")),
+            # visibility: 기상청 예보 미제공 → 생략(스코어러 기본 10km)
+        })
+    return hourly
+
+
+def fetch_all_weather_kma(points: List[Dict], api_key: str) -> Dict[str, Dict]:
+    """기상청 getVilageFcst로 모든 지점 예보 수집 (격자 중복제거).
+
+    반환 스키마는 fetch_all_weather_data(Open-Meteo)와 동일:
+        {point_code: {"hourly": [{datetime, temperature, humidity,
+                                  rain_probability, cloud_cover, wind_speed}]}}
+    """
+    print("\n[1/5] 날씨 데이터 수집 중 (기상청 getVilageFcst 격자)...")
+    if not api_key:
+        print("  오류: KMA authKey 없음 (KMA_API_KEY)")
+        return {}
+
+    # 컨테이너 TZ와 무관하게 KST 기준 base_time 계산 (getVilageFcst는 KST 발표시각)
+    now = datetime.utcnow() + timedelta(hours=9)
+    base_date, base_time = _vilage_base_datetime(now)
+
+    valid = [p for p in points if p.get("nx") and p.get("ny")]
+    uniq, seen = [], set()
+    for p in valid:
+        g = (int(p["nx"]), int(p["ny"]))
+        if g not in seen:
+            seen.add(g)
+            uniq.append(g)
+    print(f"  지점 {len(valid)}개 → 고유격자 {len(uniq)}개 "
+          f"(base {base_date} {base_time})")
+
+    grid_cache = {}
+    ok = 0
+    for i, (nx, ny) in enumerate(uniq):
+        try:
+            grid_cache[(nx, ny)] = _fetch_vilage_grid(nx, ny, base_date, base_time, api_key)
+            if grid_cache[(nx, ny)]:
+                ok += 1
+        except Exception:  # noqa: BLE001 — 개별 격자 실패는 건너뜀
+            grid_cache[(nx, ny)] = []
+        if (i + 1) % 50 == 0 or (i + 1) == len(uniq):
+            print(f"\r  격자 {i + 1}/{len(uniq)} 수집...", end="", flush=True)
+        time.sleep(0.1)  # apihub 완만한 스로틀
+
+    results = {}
+    for p in valid:
+        hourly = grid_cache.get((int(p["nx"]), int(p["ny"])), [])
+        if hourly:
+            results[p["code"]] = {"hourly": hourly}
+    print(f"\r  기상청 수집 완료: 격자 {ok}/{len(uniq)}, "
+          f"지점 {len(results)}/{len(valid)}          ")
     return results
 
 
@@ -434,7 +566,7 @@ def load_beaches_from_db() -> List[Dict]:
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT beach_num, name, lat, lon, region_code
+        SELECT beach_num, name, lat, lon, region_code, nx, ny
         FROM beaches
         WHERE lat IS NOT NULL AND lon IS NOT NULL
     """)
@@ -448,6 +580,8 @@ def load_beaches_from_db() -> List[Dict]:
             "lat": row[2],
             "lon": row[3],
             "region_code": row[4],
+            "nx": row[5],   # 기상청 격자 X (getVilageFcst용)
+            "ny": row[6],   # 기상청 격자 Y
         })
 
     conn.close()
@@ -687,8 +821,13 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
         regions = random.sample(regions, sample_size)
         print(f"\n샘플 {sample_size}개 지역 선택됨")
 
-    # 1. 날씨 데이터 수집 (Bulk API)
-    weather_data = fetch_all_weather_data(regions, batch_size=100)
+    # 1. 날씨 데이터 수집
+    # 기본은 기상청 getVilageFcst(격자). WEATHER_SOURCE=openmeteo 로 Open-Meteo 폴백.
+    use_kma = os.environ.get("WEATHER_SOURCE", "kma").lower() != "openmeteo"
+    if use_kma:
+        weather_data = fetch_all_weather_kma(regions, KMA_API_KEY)
+    else:
+        weather_data = fetch_all_weather_data(regions, batch_size=100)
 
     if not weather_data:
         print("\n오류: 날씨 데이터 수집 실패")
@@ -697,7 +836,10 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
     # 해수욕장 날씨 데이터 수집
     beach_weather_data = {}
     if beaches:
-        beach_weather_data = fetch_all_weather_data(beaches, batch_size=100)
+        if use_kma:
+            beach_weather_data = fetch_all_weather_kma(beaches, KMA_API_KEY)
+        else:
+            beach_weather_data = fetch_all_weather_data(beaches, batch_size=100)
 
     # 해수욕장 해양 데이터 수집 (비동기)
     beach_marine_data = {}
