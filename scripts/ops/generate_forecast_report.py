@@ -280,6 +280,82 @@ def fetch_all_weather_kma(points: List[Dict], api_key: str) -> Dict[str, Dict]:
     return results
 
 
+# ── fct_afs_do 단기 해상예보(파고) — 바다 장노출(동해)용 ────────────────────
+# 격자 getVilageFcst의 WAV는 연안도 0이라 못 쓴다. 해상예보구역별 파고 예보를
+# 1콜로 받아 해수욕장 marine_zone_code 앞 4자리(예: 12C2=동해중부)로 매칭.
+# KMA authKey 사용(마린 on/off와 무관 — 육상 전용 파이프라인에서도 동해 파고 확보).
+KMA_AFS_DO_URL = "https://apihub.kma.go.kr/api/typ01/url/fct_afs_do.php"
+
+
+def fetch_marine_wave_forecast(api_key: str) -> Dict[str, Dict[str, float]]:
+    """fct_afs_do 해상예보 1콜 → {zone_prefix4: {'YYYY-MM-DD': wave_m}}.
+
+    각 구역·날짜 대표 파고 = 앞바다(REG_ID 6번째 자리 '1') 세부구역 WH2(파고 상한)의
+    최댓값. 앞바다가 없으면 전체 세부구역 사용. 실패 시 빈 dict(→ 동해 스코어러가
+    'no wave data'로 0점, 기존 동작 유지).
+    """
+    if not api_key:
+        return {}
+    # tmfc1/tmfc2(발표시각 KST, YYYYMMDDHH) 창을 24h로 주고 최신 발표(TM_FC 최댓값)만 사용.
+    # (no-tmfc/tmfc=0 은 빈 응답이라 명시적 창이 필요.)
+    now = datetime.utcnow() + timedelta(hours=9)  # KST
+    params = {
+        "reg": "", "disp": "0", "help": "0", "authKey": api_key,
+        "tmfc1": (now - timedelta(hours=24)).strftime("%Y%m%d%H"),
+        "tmfc2": now.strftime("%Y%m%d%H"),
+    }
+    try:
+        resp = requests.get(KMA_AFS_DO_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        text = resp.content.decode("euc-kr", errors="replace")
+    except Exception as e:  # noqa: BLE001
+        print(f"  경고: 해상예보(파고) 수집 실패 - {e}")
+        return {}
+
+    # 1차 파싱: (TM_FC, cols, sky_idx) 수집 + 최신 발표시각 추출
+    parsed, max_tmfc = [], ""
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        cols = line.split()
+        if len(cols) < 16:
+            continue
+        # SKY 토큰(^DB0\d, 4자)의 위치로 WH2를 안정 인덱싱(예보관명 폭 가변 대비).
+        # 컬럼: ... W1 T W2 S1 S2 WH1 WH2 SKY PREP WF → WH2 = SKY_idx-1
+        sky_idx = next((j for j, c in enumerate(cols)
+                        if len(c) == 4 and c.startswith("DB0")), None)
+        if sky_idx is None or sky_idx < 3:
+            continue
+        parsed.append((cols[1], cols, sky_idx))
+        if cols[1] > max_tmfc:
+            max_tmfc = cols[1]
+
+    acc = {}  # prefix4 -> date -> list[(nearshore, wh2)]
+    for tm_fc, cols, sky_idx in parsed:
+        if tm_fc != max_tmfc:   # 최신 발표만
+            continue
+        try:
+            wh2 = float(cols[sky_idx - 1])
+        except ValueError:
+            continue
+        reg, tm_ef = cols[0], cols[2]
+        if len(tm_ef) < 8 or len(reg) < 4:
+            continue
+        date = f"{tm_ef[:4]}-{tm_ef[4:6]}-{tm_ef[6:8]}"
+        nearshore = len(reg) > 5 and reg[5] == "1"
+        acc.setdefault(reg[:4], {}).setdefault(date, []).append((nearshore, wh2))
+
+    result = {}
+    for prefix, dates in acc.items():
+        result[prefix] = {}
+        for date, vals in dates.items():
+            near = [w for ns, w in vals if ns]
+            chosen = near if near else [w for _, w in vals]
+            if chosen:
+                result[prefix][date] = round(max(chosen), 1)
+    return result
+
+
 # ============================================================================
 # STEP 2: 3시간 간격 필터링
 # ============================================================================
@@ -425,6 +501,10 @@ def get_merged_forecast_data(
                 "weather": beach_data[beach_code]
             }
 
+            # 파고 예보(fct_afs_do, 날짜별) — 바다 장노출(동해) 채점용
+            if beach.get("wave_forecast"):
+                beach_entry["wave_forecast"] = beach["wave_forecast"]
+
             # 해양 데이터 추가 (있는 경우)
             if beach_marine_data and beach_code in beach_marine_data:
                 beach_entry["marine"] = beach_marine_data[beach_code]
@@ -566,7 +646,7 @@ def load_beaches_from_db() -> List[Dict]:
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT beach_num, name, lat, lon, region_code, nx, ny
+        SELECT beach_num, name, lat, lon, region_code, nx, ny, marine_zone_code
         FROM beaches
         WHERE lat IS NOT NULL AND lon IS NOT NULL
     """)
@@ -582,6 +662,7 @@ def load_beaches_from_db() -> List[Dict]:
             "region_code": row[4],
             "nx": row[5],   # 기상청 격자 X (getVilageFcst용)
             "ny": row[6],   # 기상청 격자 Y
+            "marine_zone_code": row[7],  # 해상예보구역(fct_afs_do 파고 매칭용)
         })
 
     conn.close()
@@ -847,6 +928,20 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
         beach_marine_data = asyncio.run(
             fetch_beach_marine_data(beaches, BEACH_API_KEY_TO_USE)
         )
+
+    # 파고 예보(fct_afs_do) — 바다 장노출(동해)용. KMA 키로 1콜, 마린 on/off 무관.
+    # 해수욕장 marine_zone_code 앞 4자리로 해상예보구역 파고를 날짜별 매칭.
+    if beaches and KMA_API_KEY:
+        wave_by_zone = fetch_marine_wave_forecast(KMA_API_KEY)
+        if wave_by_zone:
+            matched = 0
+            for b in beaches:
+                zone4 = (b.get("marine_zone_code") or "")[:4]
+                if zone4 and zone4 in wave_by_zone:
+                    b["wave_forecast"] = wave_by_zone[zone4]
+                    matched += 1
+            print(f"  파고 예보 매칭: {matched}/{len(beaches)}개 해수욕장 "
+                  f"({len(wave_by_zone)}개 해상구역)")
 
     # 2. 3시간 간격 필터링
     filtered_data = filter_3hour_intervals(weather_data, days=days)

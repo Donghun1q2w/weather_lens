@@ -311,6 +311,7 @@ async def batch_calculate_daily_scores(merged_data: dict) -> dict:
         for beach in data.get("beaches", []):
             beach_weather = beach.get("weather", [])
             beach_marine = beach.get("marine", {})
+            beach_wave_fc = beach.get("wave_forecast") or {}  # {date: wave_m} (fct_afs_do 해상예보)
             beach_day_groups = _group_timeslots_by_date(beach_weather)
             beach_sorted_dates = sorted(beach_day_groups.keys())
 
@@ -334,6 +335,13 @@ async def batch_calculate_daily_scores(merged_data: dict) -> dict:
                     astronomy_cache[cache_key] = _pre_compute_astronomy(date_str, b_lat, b_lon)
                 astro = astronomy_cache[cache_key]
 
+                # 날짜별 파고 예보(fct_afs_do) 주입 → 바다 장노출(동해)이 예보 파고로 채점.
+                # marine이 없던(육상 전용) 해수욕장도 wave_height를 얻어 동해 테마가 살아난다.
+                day_marine = beach_marine
+                if date_str in beach_wave_fc:
+                    day_marine = dict(beach_marine)
+                    day_marine["wave_height"] = {"height": beach_wave_fc[date_str]}
+
                 day_scores = {}
                 tasks = []
                 for scorer in scorers:
@@ -341,7 +349,7 @@ async def batch_calculate_daily_scores(merged_data: dict) -> dict:
                         day_weather=all_day_weather,
                         date=date_str,
                         location_meta=beach_location_meta,
-                        marine_data=beach_marine,
+                        marine_data=day_marine,
                         astronomy=astro,
                     ))
 
