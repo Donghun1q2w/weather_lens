@@ -317,7 +317,17 @@ async def batch_calculate_daily_scores(merged_data: dict) -> dict:
 
             beach_location_meta = dict(location_meta)
             beach_location_meta["is_coastal"] = True  # Beaches are always coastal
-            beach_location_meta["is_south_coast"] = not beach_location_meta.get("is_east_coast", False) and not beach_location_meta.get("is_west_coast", False)
+            # 해수욕장 해안분류는 자기 해상예보구역(marine_zone_code)이 권위 소스.
+            # 부모 지역이 내륙으로 잘못 매핑돼도(예: 울진 망양→의성군) 12C=동해로 바로잡는다.
+            _zone3 = (beach.get("marine_zone_code") or "")[:3]
+            if _zone3 == "12C":       # 동해
+                beach_location_meta.update(is_east_coast=True, is_west_coast=False, is_south_coast=False)
+            elif _zone3 == "12A":     # 서해
+                beach_location_meta.update(is_east_coast=False, is_west_coast=True, is_south_coast=False)
+            elif _zone3 in ("12B", "12D"):  # 남해/제주
+                beach_location_meta.update(is_east_coast=False, is_west_coast=False, is_south_coast=True)
+            else:                     # 미상: 기존 로직(동/서 아니면 남해)
+                beach_location_meta["is_south_coast"] = not beach_location_meta.get("is_east_coast", False) and not beach_location_meta.get("is_west_coast", False)
 
             beach_scores = {}
             for i, date_str in enumerate(beach_sorted_dates):

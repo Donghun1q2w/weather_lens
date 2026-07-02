@@ -504,6 +504,9 @@ def get_merged_forecast_data(
             # 파고 예보(fct_afs_do, 날짜별) — 바다 장노출(동해) 채점용
             if beach.get("wave_forecast"):
                 beach_entry["wave_forecast"] = beach["wave_forecast"]
+            # 해상예보구역 — 해수욕장 해안분류(동/서/남해)의 권위 소스(부모 지역 오매핑 방어)
+            if beach.get("marine_zone_code"):
+                beach_entry["marine_zone_code"] = beach["marine_zone_code"]
 
             # 해양 데이터 추가 (있는 경우)
             if beach_marine_data and beach_code in beach_marine_data:
