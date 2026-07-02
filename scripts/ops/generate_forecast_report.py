@@ -262,21 +262,42 @@ def get_merged_forecast_data(
             region_code = beach.get("region_code")
             beach_code = beach.get("code")
 
-            if not region_code or not beach_code:
+            # 해수욕장은 '자기 좌표의 날씨(beach_data)'만 있으면 채점 가능하다(batch_scorer 는
+            # beach.weather + beach.marine + beach 좌표만 사용). 부모 지역(region)의 날씨 fetch
+            # 성공 여부와는 무관하므로 여기에 의존하지 않는다.
+            # (과거 버그: `region_code in merged` 조건 때문에 Open-Meteo 부분 실패로 지역이
+            #  누락된 런에서 해당 지역의 해수욕장이 통째로 사라졌다 — 경북 동해안 12C20000 등.)
+            if not beach_code or beach_code not in beach_data:
                 continue
 
-            if region_code in merged and beach_code in beach_data:
-                beach_entry = {
-                    "beach_num": beach["beach_num"],
-                    "name": beach["name"],
-                    "weather": beach_data[beach_code]
+            # 부모 지역이 이번 런에서 fetch 안 됐으면 최소 버킷을 만들어 해수욕장을 살린다.
+            # 해안 분류(is_east/west_coast)는 날씨 fetch 여부와 무관한 region_info 로 채워
+            # 바다 sea 판정이 유지되게 한다.
+            bucket_key = region_code or f"__beach_only__{beach.get('beach_num')}"
+            if bucket_key not in merged:
+                rinfo = region_info.get(region_code, {})
+                merged[bucket_key] = {
+                    "region": {"name": rinfo.get("name", ""), "weather": []},
+                    "lat": rinfo.get("lat", beach.get("lat", 0)),
+                    "lon": rinfo.get("lon", beach.get("lon", 0)),
+                    "is_east_coast": rinfo.get("is_east_coast", False),
+                    "is_west_coast": rinfo.get("is_west_coast", False),
+                    "is_coastal": rinfo.get("is_coastal", True),
+                    "elevation": rinfo.get("elevation", 0),
+                    "beaches": [],
                 }
 
-                # 해양 데이터 추가 (있는 경우)
-                if beach_marine_data and beach_code in beach_marine_data:
-                    beach_entry["marine"] = beach_marine_data[beach_code]
+            beach_entry = {
+                "beach_num": beach["beach_num"],
+                "name": beach["name"],
+                "weather": beach_data[beach_code]
+            }
 
-                merged[region_code]["beaches"].append(beach_entry)
+            # 해양 데이터 추가 (있는 경우)
+            if beach_marine_data and beach_code in beach_marine_data:
+                beach_entry["marine"] = beach_marine_data[beach_code]
+
+            merged[bucket_key]["beaches"].append(beach_entry)
 
         total_beaches = sum(len(data["beaches"]) for data in merged.values())
         beaches_with_marine = sum(1 for data in merged.values() for b in data["beaches"] if b.get("marine"))
