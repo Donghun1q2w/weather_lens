@@ -356,6 +356,63 @@ def fetch_marine_wave_forecast(api_key: str) -> Dict[str, Dict[str, float]]:
     return result
 
 
+# ── 조석 예보(고/저조) — 바다 장노출(서해/남해)용 ──────────────────────────
+# 서/남해 장노출은 조석차(간조~만조)로 채점. KHOA 조석예보(data.go.kr)를 가장 가까운
+# 조석 관측소(34곳) 기준 날짜별 수집. BEACH_API_KEY(data.go.kr) 사용. 관측소당 하루 4건
+# (고2/저2)이라 날짜별 호출(관측소×일수 ≈ 100콜). 관측소 중복제거로 콜 최소화.
+async def _collect_tide_by_station(api_key: str, dates: list) -> Dict[str, Dict[str, list]]:
+    """{station_id: {'YYYY-MM-DD': [forecast...]}} — 조석 관측소별·날짜별 고/저조."""
+    from scripts.collectors.khoa_ocean import KHOAOceanCollector
+    from scripts.data.ocean_stations import OCEAN_STATIONS
+    stations = [s for s in OCEAN_STATIONS if s.get("provides_tide") == 1]
+    out = {}
+    async with KHOAOceanCollector(api_key) as col:
+        for st in stations:
+            sid = st["station_id"]
+            per_date = {}
+            for d in dates:
+                try:
+                    r = await col.collect_tide(sid, d, num_of_rows=10)
+                    fc = r.get("forecasts") or []
+                    for f in fc:  # 스코어러 저조시각 조회용 HH:MM 추가
+                        dt = f.get("datetime") or ""
+                        f["time"] = dt[11:16] if len(dt) >= 16 else ""
+                    if fc:
+                        per_date[d.strftime("%Y-%m-%d")] = fc
+                except Exception:  # noqa: BLE001 — 관측소/날짜 단위 실패는 스킵
+                    pass
+                await asyncio.sleep(0.05)
+            if per_date:
+                out[sid] = per_date
+    return out
+
+
+def fetch_marine_tide_forecast(api_key: str, beaches: List[Dict], dates: list) -> int:
+    """해수욕장에 tide_forecast({date:{'forecasts':[...]}}) 부착(가장 가까운 조석 관측소,
+    100km 이내). 반환: 매칭된 해수욕장 수."""
+    if not api_key or not beaches or not dates:
+        return 0
+    try:
+        station_tides = asyncio.run(_collect_tide_by_station(api_key, dates))
+    except Exception as e:  # noqa: BLE001
+        print(f"  경고: 조석 예보 수집 실패 - {e}")
+        return 0
+    if not station_tides:
+        return 0
+    matched = 0
+    for b in beaches:
+        if not (b.get("lat") and b.get("lon")):
+            continue
+        st, dist = find_nearest_tide_station(b["lat"], b["lon"])
+        if not st or dist > 100:
+            continue
+        tides = station_tides.get(st["station_id"])
+        if tides:
+            b["tide_forecast"] = {d: {"forecasts": fc} for d, fc in tides.items()}
+            matched += 1
+    return matched
+
+
 # ============================================================================
 # STEP 2: 3시간 간격 필터링
 # ============================================================================
@@ -504,6 +561,9 @@ def get_merged_forecast_data(
             # 파고 예보(fct_afs_do, 날짜별) — 바다 장노출(동해) 채점용
             if beach.get("wave_forecast"):
                 beach_entry["wave_forecast"] = beach["wave_forecast"]
+            # 조석 예보(KHOA, 날짜별) — 바다 장노출(서해/남해) 채점용
+            if beach.get("tide_forecast"):
+                beach_entry["tide_forecast"] = beach["tide_forecast"]
             # 해상예보구역 — 해수욕장 해안분류(동/서/남해)의 권위 소스(부모 지역 오매핑 방어)
             if beach.get("marine_zone_code"):
                 beach_entry["marine_zone_code"] = beach["marine_zone_code"]
@@ -667,6 +727,34 @@ def load_beaches_from_db() -> List[Dict]:
             "ny": row[6],   # 기상청 격자 Y
             "marine_zone_code": row[7],  # 해상예보구역(fct_afs_do 파고 매칭용)
         })
+
+    # marine_zone_code NULL(내륙 매핑 등 76개) 해수욕장은 가장 가까운 해안 지역 sido로
+    # 유추해 채운다. 스코어링(해안분류·파고 매칭)이 regions.db 값을 쓰므로 여기서
+    # 채워야 '동해 아님'/'no wave data' 오분류를 막는다(postgres만 채우면 스코어링 미반영).
+    null_beaches = [b for b in beaches if not b.get("marine_zone_code")]
+    if null_beaches:
+        try:
+            from scripts.data.marine_zones import get_marine_zone
+            cursor.execute("SELECT sido, lat, lon, is_coastal, is_west_coast, is_east_coast "
+                           "FROM regions WHERE is_coastal = 1 AND lat IS NOT NULL")
+            coastal = cursor.fetchall()
+            filled = 0
+            for b in null_beaches:
+                best, best_d = None, float("inf")
+                for sido, rlat, rlon, ic, iw, ie in coastal:
+                    dlat = b["lat"] - rlat
+                    dlon = (b["lon"] - rlon) * 0.8  # 위도 36° 부근 경도 압축 근사 보정
+                    d = dlat * dlat + dlon * dlon
+                    if d < best_d:
+                        best_d, best = d, (sido, ic, iw, ie)
+                if best:
+                    z = get_marine_zone(best[0], bool(best[1]), bool(best[2]), bool(best[3]))
+                    if z:
+                        b["marine_zone_code"] = z
+                        filled += 1
+            print(f"  marine_zone_code 유추 채움: {filled}/{len(null_beaches)}개(NULL)")
+        except Exception as e:  # noqa: BLE001
+            print(f"  경고: marine_zone_code 유추 실패(비치명적) - {e}")
 
     conn.close()
 
@@ -925,9 +1013,11 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
         else:
             beach_weather_data = fetch_all_weather_data(beaches, batch_size=100)
 
-    # 해수욕장 해양 데이터 수집 (비동기)
+    # 해수욕장 해양 데이터 수집 (BeachInfo 부이 파고/수온) — ENABLE_MARINE 일 때만.
+    # (느린 per-beach 호출이고, 파고는 fct_afs_do·조석은 KHOA로 별도 수집하므로 기본 off.)
+    _enable_marine = os.environ.get("ENABLE_MARINE", "false").lower() in ("1", "true", "yes")
     beach_marine_data = {}
-    if beaches and BEACH_API_KEY_TO_USE:
+    if beaches and BEACH_API_KEY_TO_USE and _enable_marine:
         beach_marine_data = asyncio.run(
             fetch_beach_marine_data(beaches, BEACH_API_KEY_TO_USE)
         )
@@ -945,6 +1035,13 @@ def main(days: int = 2, output_dir: Optional[Path] = None, sample_size: Optional
                     matched += 1
             print(f"  파고 예보 매칭: {matched}/{len(beaches)}개 해수욕장 "
                   f"({len(wave_by_zone)}개 해상구역)")
+
+    # 조석 예보(KHOA data.go.kr) — 바다 장노출(서해/남해)용. BEACH 키로 관측소별 날짜별.
+    if beaches and BEACH_API_KEY:
+        _kst = datetime.utcnow() + timedelta(hours=9)
+        _fc_dates = [_kst + timedelta(days=i) for i in range(days)]
+        tide_matched = fetch_marine_tide_forecast(BEACH_API_KEY, beaches, _fc_dates)
+        print(f"  조석 예보 매칭: {tide_matched}/{len(beaches)}개 해수욕장")
 
     # 2. 3시간 간격 필터링
     filtered_data = filter_3hour_intervals(weather_data, days=days)
