@@ -759,6 +759,15 @@ class BioluminescenceScorer(BaseScorer):
     async def calculate_daily_score(self, day_weather: list, date: str,
                                      location_meta: dict, marine_data: dict = None,
                                      astronomy: dict = None) -> dict:
+        # GATE: 서해/남해 해안만 (야광충은 서·남해 연안에서 발생하는 현상 — 내륙·동해 제외)
+        is_west = location_meta.get("is_west_coast")
+        is_south = (location_meta.get("is_south_coast") or
+                    (location_meta.get("is_coastal") and
+                     not location_meta.get("is_east_coast") and
+                     not location_meta.get("is_west_coast")))
+        if not (is_west or is_south):
+            return {"score": 0, "factors": {"reason": "서해/남해 해안 아님"}, "time_used": "N/A"}
+
         # Season check (April-September)
         try:
             month = datetime.fromisoformat(date).month
@@ -817,9 +826,8 @@ class BioluminescenceScorer(BaseScorer):
                            self.config['moon_phase']['weight'])
         score += cloud_score * remaining
 
-        # Coast bonus
-        if location_meta.get("is_east_coast") or location_meta.get("is_west_coast"):
-            score += self.config.get('south_east_coast_bonus', 10)
+        # Coast bonus (서·남해 연안) — 게이트를 통과했으므로 항상 적용
+        score += self.config.get('south_east_coast_bonus', 10)
 
         return {
             "score": round(min(100.0, max(0.0, score)), 1),
